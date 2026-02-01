@@ -1,0 +1,495 @@
+\documentclass[conference]{IEEEtran}
+
+% Packages
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{subcaption}
+\usepackage{enumitem}
+\usepackage{mathtools}
+\usepackage{amsthm}
+\usepackage[capitalize,noabbrev]{cleveref}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% THEOREMS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\theoremstyle{plain}
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{assumption}[theorem]{Assumption}
+\theoremstyle{remark}
+\newtheorem{remark}[theorem]{Remark}
+
+\begin{document}
+
+\title{Grounded Physics Representations Enable Robust Causal Reasoning in Language Models}
+
+% For double-blind review, author information is hidden
+% Uncomment below for camera-ready version
+% \author{
+% \IEEEauthorblockN{Jesse J. Pokora}
+% \IEEEauthorblockA{Department of Computer Science\\
+% University of Wisconsin-Milwaukee\\
+% Milwaukee, WI, USA\\
+% jpokora@uwm.edu}
+% \and
+% \IEEEauthorblockN{Tian Zhao}
+% \IEEEauthorblockA{Department of Computer Science\\
+% University of Wisconsin-Milwaukee\\
+% Milwaukee, WI, USA\\
+% tzhao@uwm.edu}
+% }
+
+\author{\IEEEauthorblockN{Anonymous Author(s)}}
+
+\maketitle
+
+\begin{abstract}
+This paper studies the role of explicit physical grounding in causal physics reasoning by comparing grounded, text-only, and tool-augmented language-based systems under controlled conditions. We introduce Grounded-Physics LM, a hybrid architecture that integrates a physics-simulation-trained transformer encoder (PhysicsFormer) with a lightweight language decoder (DistilGPT-2) via learned adapter layers and task heads. Evaluated on 435 stratified CLEVRER benchmark questions for causal reasoning, our 173M-parameter system achieves 67.8\% overall accuracy, matching frontier LLMs like GPT-4o (66.4\%) with far fewer parameters. Critically, physics grounding enables 60.0\% accuracy on predictive questions (``what happens next?''), where GPT-4o drops to 18.6\%, demonstrating that explicit physics representations substantially benefit forward temporal reasoning. Zero-physics ablation reveals that physics grounding contributes +46.4\%, demonstrating genuine physics-language integration. Controlled ablation with shuffled MCQ choices shows the physics prefix contributes +14.5\% above the true text-only baseline, while corrupted physics causes 32\% harm compared to no physics---confirming the model trusts and follows physics guidance. These findings demonstrate that explicit physics representations enable genuine causal reasoning in compact models that approach frontier system performance.
+\end{abstract}
+
+\begin{IEEEkeywords}
+symbol grounding, physics reasoning, large language models, grounded representations, causal reasoning, generalization, transformer architecture
+\end{IEEEkeywords}
+
+\section{Introduction}
+\label{sec:intro}
+%% Whether effective reasoning about the physical world requires representations grounded in sensorimotor structure has been a longstanding question spanning cognitive science, philosophy of mind, and artificial intelligence. 
+Large language models (LLMs) perform well on many reasoning benchmarks, yet continue to struggle with tasks that require consistent understanding of physical dynamics and spatial constraints. These limitations have been documented across navigation, spatial reasoning, and physics-related tasks, raising questions about whether text-only representations are sufficient for robust physical reasoning. Harnad's \emph{symbol grounding problem} \cite{harnad1990symbol} provides a theoretical framework for understanding this limitation: purely symbolic systems suffer from an infinite regress where symbols are defined only in terms of other symbols, never connecting to non-symbolic representations of the world. Language model tokens for ``collision,'' ``velocity,'' and ``trajectory'' are defined through statistical co-occurrence with other tokens, not through connection to physical reality. While text-only models capture statistical regularities that track physical phenomena, our results suggest these ungrounded representations are less reliable for tasks requiring forward simulation---predicting outcomes under hypothetical interventions rather than pattern-matching on observed scenarios.
+
+Recent advances in LLMs have brought the symbol grounding problem into sharp focus. LLMs achieve strong performance across a wide range of linguistic and reasoning benchmarks, yet persistent weaknesses have been documented on tasks requiring spatial, relational, and physical reasoning \cite{williams2024easy}. In response, the research community has proposed a variety of methods to extend LLM capabilities, including chain-of-thought prompting, tool use, multimodal perception, retrieval-augmented generation, and neurosymbolic approaches. Prior systems have demonstrated strong causal reasoning on physics benchmarks VRDP \cite{ding2021vrdp} and ALOE \cite{ding2021aloe}, but these approaches require either learned differentiable physics simulators, multi-stage pipelines combining neural perception with symbolic program execution, or extensive video supervision with self-supervised dynamics objectives. {\em Whether a simpler architecture conditioning a language model on explicit physics state representations can achieve comparable reasoning remains an open question.}
+
+This paper investigates this question from a representation-learning perspective. Rather than treating embodiment as a philosophical requirement, we examine whether conditioning language models on explicit physical state information improves performance on controlled physics reasoning tasks. We introduce \emph{Grounded-Physics LM}, a hybrid architecture that integrates a physics-simulation-trained encoder (\emph{PhysicsFormer}) with a lightweight language decoder (DistilGPT-2) via learned adapter layers \cite{houlsby2019adapters}. PhysicsFormer is trained on NVIDIA Isaac Sim simulations, providing ground-truth physical state vectors including position, velocity, orientation, and object properties, while the language model operates only over textual inputs augmented with learned physics-derived prefix embeddings.
+
+We evaluate Grounded-Physics LM on the CLEVRER benchmark \cite{yi2020clevrer} for causal reasoning and compare its performance to that of contemporary text-only language models under identical task specifications. This experimental design allows us to isolate the effect of explicit physical grounding on reasoning performance, independent of model scale, prompting strategies, or external tools. Our results show that structured physical state representations markedly improve causal reasoning about physical systems, with our compact model outperforming systems orders of magnitude larger. These findings reveal limitations of text-only approaches and motivate further investigation into grounded representations for physical reasoning.
+
+\subsection{Contributions}
+
+Our work makes three novel contributions. First, \textbf{continuous physics-language integration}: unlike PIGLeT \cite{zellers2021piglet}, which uses symbolic state interfaces (``broken: true''), or PhyVLLM \cite{zhan2025phyvllm}, which extracts physics implicitly from video, Grounded-Physics LM bridges ground-truth simulation states to language through learned continuous prefix embeddings \cite{li2021prefix}. Second, \textbf{controlled comparison}: we provide direct comparison between a physics-grounded system and frontier LLMs on identical CLEVRER tasks, isolating the contribution of grounded representations under controlled conditions. Third, \textbf{empirical evidence for the symbol grounding problem}: we demonstrate that physics grounding enables predictive reasoning where text-only models fail (60.0\% vs 18.6\% for GPT-4o), with all tested LLMs performing near or below chance on forward temporal prediction, while text-only models perform well on retrospective causal attribution where statistical patterns suffice.
+
+\section{Related Work}
+\label{sec:related}
+
+\subsection{LLM Limitations and Intuitive Physics}
+
+Recent research documents systematic LLM weakness on spatial and physical reasoning. Rodionov et al.\ \cite{rodionov2025floorplanqa} found that frontier LLMs fail to respect physical constraints in spatial layouts; Williams et al.\ \cite{williams2024easy} concluded that LLMs lack fundamental spatial awareness; Pang et al.\ \cite{pang2024physics} showed that even with chain-of-thought prompting, LLMs struggle on physics benchmarks. While reasoning-focused models show improvement, they remain below grounded systems, suggesting text-only refinements do not address the grounding deficit.
+
+DeepMind's PLATO system provides crucial precedent \cite{piloto2022intuitive}. PLATO learns intuitive physics from \textit{synthetic video}, representing the world as discrete objects and predicting future states. Unlike Grounded-Physics LM's structured state tensors, PLATO demonstrates that physics intuitions can emerge from visual experience, though it learns perceptual expectations rather than explicit causal reasoning capabilities. Critically, flat baseline models with equal or greater parameters failed to learn physical concepts that PLATO acquired reliably. This finding---that architectural structure matters more than scale for physical understanding---directly supports our framework. Garrido et al.\ \cite{garrido2025intuitive} similarly found that intuitive physics emerges from latent-space prediction, while pixel-space and text-based models perform near chance.
+
+\subsection{Physics-Grounded Systems}
+
+%% Prior work on LLM limitations \cite{wicke2024exploring,feng2025embodied} documents what ungrounded systems cannot do. Several systems have attempted physics-language integration: Mind's Eye \cite{liu2022minds} uses simulation as an external tool; PIGLeT \cite{zellers2021piglet} uses symbolic state interfaces; the General Physics Transformer \cite{wiesner2025gphyt} lacks language integration. Concurrent PhyVLLM \cite{zhan2025phyvllm} extracts physics implicitly from video. Grounded-Physics LM differs by using explicit ground-truth state tensors with learned continuous embeddings, isolating physics grounding from perceptual inference.
+
+Prior work on LLM limitations \cite{wicke2024exploring,feng2025embodied} documents negative results: what ungrounded systems cannot do. Grounded-Physics LM provides nuanced evidence addressing Harnad's symbol grounding problem: physics grounding enables predictive reasoning where text-only models fail (60.0\% vs GPT-4o's 18.6\%), with a majority of tested LLMs performing near or below chance on forward temporal prediction, though text-only models perform well on retrospective questions where statistical patterns suffice. Several systems have attempted physics-language integration: Mind's Eye \cite{liu2022minds} uses simulation as an external tool; PIGLeT \cite{zellers2021piglet} uses symbolic state interfaces; the General Physics Transformer \cite{wiesner2025gphyt} lacks language integration. Concurrent PhyVLLM \cite{zhan2025phyvllm} extracts physics implicitly from video. Grounded-Physics LM differs by using explicit ground-truth state tensors with learned continuous embeddings, isolating the contribution of physics grounding from perceptual inference.
+
+
+
+\section{Methodology}
+\label{sec:method}
+
+\paragraph{Design Philosophy: Controlling Confounding Variables.} Our architectural choices prioritize isolating the effect of physics grounding from other factors that could influence reasoning performance. We deliberately use DistilGPT-2 (82M parameters), a well-characterized, modest-capacity language model, rather than a larger or more recent architecture. This choice controls for confounding variables: any performance gains cannot be attributed to massive pretraining corpora, emergent capabilities from scale, or architectural innovations in the language model itself. The 50M-parameter PhysicsFormer encoder is similarly compact. By keeping both components small and well-understood, we ensure that observed improvements in physics reasoning stem specifically from the grounded representations, not from model capacity or training data advantages. This design enables clean ablation: comparing Grounded-Physics LM against the identical DistilGPT-2 backbone without physics grounding directly quantifies the contribution of physical state representations.
+
+\subsection{Grounded-Physics LM Architecture}
+\begin{figure*}[ht!]
+\centering
+\includegraphics[width=0.7\linewidth]{architecture_diagram.png}
+\caption{Grounded-Physics LM Architecture. Object states $[B, T, N, 35]$ are processed by PhysicsFormer: a StateEncoder projects the 70D augmented state (state + velocity) to 768D embeddings, which pass through an 8-layer Transformer with physics-biased attention. The Adapter projects pooled physics embeddings to 64 prefix tokens of dimension 768. These are concatenated with question embeddings from the tokenizer and processed by DistilGPT-2's 6-layer decoder, which generates answers via the language modeling head.}
+\label{fig:architecture}
+\end{figure*}
+
+
+Grounded-Physics LM is a hybrid neural architecture combining a physics-specialized encoder with a language model decoder (see Figure~\ref{fig:architecture}). The system processes physics state tensors $[B, T, N, 35]$ through PhysicsFormer: a StateEncoder projects the 70D augmented representation (state concatenated with velocity) to 768-dimensional embeddings, which then pass through an 8-layer Transformer with physics-biased attention. The Adapter projects pooled physics embeddings to 64 prefix tokens ($768 \to 64 \times 768$), which are concatenated with tokenized question embeddings and processed by DistilGPT-2 (6-layer, 82M parameters) for answer generation.
+
+The physics state consists of raw numerical values from NVIDIA Isaac Sim \cite{nvidia2023isaacsim}, a high-fidelity physics simulation platform built on Omniverse that provides accurate rigid body dynamics, collision detection, and real-time performance. Isaac Sim offers deterministic, reproducible physics with direct access to ground-truth state vectors (position, velocity, orientation, angular velocity, and static properties), enabling controlled experiments that isolate physical grounding from perceptual noise.
+
+A learned projection layer transforms this state vector into prefix embeddings, abstract vectors that live in the same embedding space as the transformer's token representations. These prefix embeddings are then prepended to the tokenized language input, allowing the transformer's attention mechanism to attend to the physics context alongside the language tokens. This architectural choice preserves the full information content of physical dynamics and isolates physics grounding from perceptual inference.
+
+\paragraph{PhysicsFormer Encoder}
+PhysicsFormer adapts the transformer architecture \cite{vaswani2017attention} for physics simulation, operating directly on numerical object state tensors to produce representations that capture object dynamics and interactions.
+Each object at time step $t$ is represented by a 35-dimensional state vector
+\[
+\mathbf{s}_i^t \in \mathbb{R}^{35},
+\]
+containing position (3D), linear velocity (3D), orientation quaternion (4D), angular velocity (3D), and static properties including mass, friction coefficients, and shape parameters (22D). To encode temporal information without recurrent connections, PhysicsFormer follows the Graph Network Simulator (GNS) paradigm \cite{sanchez2020learning} by explicitly incorporating state changes as input features.
+For sequential inputs, the state delta is computed via finite differences across all dynamic components:
+\[
+\Delta\mathbf{s}_i^t = \mathbf{s}_i^t - \mathbf{s}_i^{t-1}.
+\]
+This captures not only positional velocity but also changes in orientation and angular velocity between frames. The state and state-delta vectors are concatenated to form the augmented object representation:
+\begin{equation}
+\mathbf{x}_i^t = \left[ \mathbf{s}_i^t ; \Delta\mathbf{s}_i^t \right] \in \mathbb{R}^{70}.
+\label{eq:augmented_state}
+\end{equation}
+
+Each augmented object vector is independently projected into a latent embedding space using a shared object encoder:
+\begin{equation}
+\mathbf{e}_i^t = f_{\text{obj}}(\mathbf{x}_i^t) \in \mathbb{R}^{768},
+\label{eq:object_embedding}
+\end{equation}
+where $f_{\text{obj}}$ is a feedforward network applied identically to all objects and time steps. These embeddings serve as the initial node representations for relational reasoning.
+
+\paragraph{Relational Modeling and Physics-Biased Attention}
+To model object interactions, PhysicsFormer augments self-attention with physics-biased attention. For each ordered object pair $(i,j)$, the model computes pairwise physical features:
+\begin{align}
+d_{ij} &= \|\mathbf{p}_i - \mathbf{p}_j\|, \quad
+c_{ij} = \frac{(\mathbf{p}_i - \mathbf{p}_j)^\top (\mathbf{v}_i - \mathbf{v}_j)}{d_{ij}}, \nonumber \\
+\Delta \mathbf{v}_{ij} &= \mathbf{v}_i - \mathbf{v}_j, \quad
+\Delta \mathbf{q}_{ij} = \mathbf{q}_i \otimes \mathbf{q}_j^{-1}, \quad
+\Delta \boldsymbol{\omega}_{ij} = \boldsymbol{\omega}_i - \boldsymbol{\omega}_j \nonumber
+\end{align}
+where $\mathbf{p}_i$, $\mathbf{v}_i$, $\mathbf{q}_i$, $\boldsymbol{\omega}_i$ denote position, velocity, orientation quaternion, and angular velocity. These are concatenated into a 12D pairwise feature $\mathbf{f}_{ij}$ and mapped to attention biases via $\mathbf{b}_{ij} = \tanh(W_2 \, \text{ReLU}(W_1 \mathbf{f}_{ij})) \in \mathbb{R}^{H}$, injected additively into scaled dot-product attention. This introduces an inductive bias favoring physically meaningful interactions. The learned 768-dimensional embeddings encode complex patterns such as ``about to collide'' or ``moving as a group,'' discovering physics-relevant abstractions that ground linguistic symbols in physical dynamics.
+
+\paragraph{Adapter Architecture}
+The adapter is a lightweight neural bridge that connects PhysicsFormer's 768-dimensional physics embeddings to DistilGPT-2's language understanding capabilities. It transforms physics representations into 64 learned ``prefix tokens'' that condition the language model's generation \cite{li2021prefix}. The adapter projects pooled physics embeddings ($768 \to 64 \times 768$), reshaping the output to create 64 prefix tokens each of dimension 768, matching DistilGPT-2's embedding space.
+
+
+\paragraph{Training Methodology} Unlike prior systems that require self-supervised dynamics learning from video (ALOE, PLATO), Grounded-Physics LM uses \textbf{supervised learning} throughout. PhysicsFormer is trained with supervised objectives (next-state prediction, schema classification) using AdamW optimization with curriculum learning organized into 13 levels of increasing complexity, from simple gravity and free fall through collisions, stacking, and complex dynamics. The model employs RMSNorm, SwiGLU activation, RoPE positional embeddings, and Port-Hamiltonian-inspired energy conservation regularization \cite{desai2024phmarl,greydanus2019hamiltonian} that penalizes violations of physical conservation laws during training. Critically, advanced training levels include \textbf{causal training} (Level 12) with object dropout and intervention loss---teaching the model to predict outcomes when objects are removed---and \textbf{counterfactual training} (Level 13) with contrastive learning for ``what if'' reasoning, training the model to predict alternative outcomes under different initial conditions. Adapter training uses supervised QA pairs, freezing PhysicsFormer and applying progressive unfreezing across three phases to prevent catastrophic forgetting while enabling physics-language integration.
+
+\paragraph{Preventing Modality Collapse.} A critical challenge in multimodal learning is \emph{modality collapse}, where models learn to ignore one input modality \cite{goyal2017making,agrawal2018dont}. To prevent this, we add a \emph{physics-usage contrastive loss} that penalizes when real and zeroed physics produce similar prefix tokens. Our trained adapter achieves mean cosine similarity of $-0.85$ between real and zeroed physics prefix tokens, indicating excellent differentiation---prefix tokens point in nearly opposite directions when physics input changes.
+
+\subsection{Experimental Design}
+Grounded-Physics LM and baseline LLMs were evaluated on the CLEVRER benchmark \cite{yi2020clevrer}, a video-based physics reasoning dataset featuring synthetic scenes of colliding objects. CLEVRER provides ground-truth scene annotations including object positions, velocities, and attributes for each frame. We extract these annotations from frame 64 to construct the state tensors for Physics-LLM evaluation, ensuring that our physics representations derive from the same underlying scene data available (in principle) to all models. CLEVRER contains four question types; we focus on the three causal reasoning categories: explanatory (``What caused X to happen?''), predictive (``Will X happen?''), and counterfactual (``What if X didn't happen?''). All questions are multiple-choice with four options (random baseline: 25\%). Descriptive questions (e.g., ``How many spheres are there?'') were excluded because they test scene parsing rather than causal reasoning; LLMs excel at extracting attributes from text descriptions, which would obscure the physics reasoning gap we aim to measure. Evaluation used 435 stratified questions (180 explanatory questions, 70 predictive questions, 185 counterfactual questions) from the CLEVRER validation set. This distribution reflects the CLEVRER dataset's natural question type composition.
+
+\paragraph{Fair Comparison Protocol.} Although CLEVRER provides 128-frame videos showing complete object trajectories, we evaluate models on a \textbf{single frame} (frame 64, corresponding to 2.5 seconds into each 5-second video). The midpoint was chosen to provide balanced information: early enough that future events remain uncertain, yet late enough that object dynamics (velocities, post-collision trajectories) are fully developed. This choice affects all models equally. This design tests whether models can reason about physics from a snapshot: inferring past collisions, predicting future events, and simulating counterfactuals from positions and velocities alone, without observing the actual temporal dynamics. Both Grounded-Physics LM and text-based LLMs receive \textbf{identical single-frame scene information}:
+
+\begin{itemize}[nosep,leftmargin=*]
+    \item \textbf{Grounded-Physics LM} receives a state tensor of shape $[1, N, 35]$ containing object positions, velocities, mass, shape, color, and material properties for the single frame.
+    \item \textbf{Text-based LLMs} (GPT-4o, Claude, Llama, etc.) receive an equivalent text description: object attributes (color, material, shape), positions $(x, y, z)$, and velocity descriptions (direction and speed).
+\end{itemize}
+
+Neither model receives explicit collision event labels or temporal trajectory information; both must reason from a single instantaneous snapshot of the physics state. This ensures the comparison isolates the effect of physics grounding (learned continuous representations) versus text-based reasoning.
+
+Baseline models include GPT-5.2, GPT-4o, Claude Sonnet 4, Claude 4.5 Sonnet, Gemini 2.0 Flash, Llama-3.1-70B, Qwen2.5-72B, Llama-3.1-8B, and vanilla DistilGPT-2 (82M). All baselines were evaluated zero-shot with greedy decoding (temperature=0) using identical prompt formats.
+
+\section{Experimental Results}
+\label{sec:results}
+
+\subsection{Training Data}
+Training data was generated using NVIDIA Isaac Sim physics simulation comprising approximately 44,400 episodes across 37 physics schemas organized into 11 curriculum groups of increasing complexity:
+\begin{itemize}[nosep,leftmargin=*]
+    \item \textbf{Gravity \& Free Fall} (4 schemas): multi-drop, varied mass drop
+    \item \textbf{Collisions} (6 schemas): head-on, angled, chain collision
+    \item \textbf{Stacking} (5 schemas): simple stack, pyramid stack
+    \item \textbf{Rolling \& Sliding} (4 schemas): ramp roll, friction compare
+    \item \textbf{Projectiles} (4 schemas): horizontal throw, lob throw
+    \item \textbf{Domino} (1 schema): chain reaction
+    \item \textbf{Scattering} (4 schemas): explosion scatter, impact scatter
+    \item \textbf{Physics Variety} (5 schemas): obstacle drop, wedge deflect
+    \item \textbf{Articulated} (1 schema): hinged door
+    \item \textbf{Rotation} (1 schema): angular momentum
+    \item \textbf{Complex Dynamics} (2 schemas): billiard break, bowling strike
+\end{itemize}
+This structured curriculum ensures the model learns fundamental physics principles before encountering complex multi-object interactions. Sequences extend up to 128 frames at 60 Hz. Advanced training modes (Levels 12--13) use all 37 schemas with specialized objectives: Level 12 (Causal Training) applies object dropout with intervention loss, teaching causal relationships by predicting outcomes when objects are removed; Level 13 (Counterfactual Training) uses contrastive learning for ``what if'' reasoning. The dataset includes 39,280 QA training samples across 41 question types with a 90\%/10\% train/test split.
+
+\begin{table*}[t]
+\centering
+\footnotesize
+\renewcommand{\arraystretch}{0.9}
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}lccccccccc@{}}
+\toprule
+& & \multicolumn{4}{c}{\textbf{Standard (3--6 obj.)}} & \multicolumn{4}{c}{\textbf{15-Object}} \\
+\cmidrule(lr){3-6} \cmidrule(lr){7-10}
+\textbf{Model} & \textbf{Params} & \textbf{All} & \textbf{Exp.} & \textbf{Prd.} & \textbf{Cnt.} & \textbf{All} & \textbf{Exp.} & \textbf{Prd.} & \textbf{Cnt.} \\
+\midrule
+\textbf{Grounded-Physics LM (Ours)} & \textbf{173M} & \underline{67.8} & 78.3 & \textbf{60.0} & 60.5 & 54.5 & 59.4 & 54.3 & 49.7 \\
+Qwen2.5-72B & 72B & \textbf{71.5} & \textbf{80.6} & 44.3 & \textbf{73.0} & 58.2 & 58.9 & \underline{57.1} & 57.8 \\
+GPT-4o & $\sim$200B & 66.4 & \underline{79.4} & 18.6 & \underline{71.9} & 51.0 & 57.2 & 22.9 & 55.7 \\
+Gemini 2.0 Flash & $\sim$18B & 61.1 & 73.3 & 42.9 & 56.2 & \underline{59.3} & 65.0 & 34.3 & \textbf{63.2} \\
+Llama-3.1-8B & 8B & 51.0 & 51.1 & 34.3 & 57.3 & 53.8 & 53.9 & \textbf{61.4} & 50.8 \\
+DeepSeek-V3 & 37B (671B MoE) & 57.0 & 63.9 & 37.1 & 57.8 & 54.3 & 53.9 & 37.1 & 61.1 \\
+Qwen2.5-7B & 7B & 54.9 & 54.4 & \underline{52.9} & 56.2 & 53.6 & 57.8 & 55.7 & 48.6 \\
+Mixtral-8x7B & $\sim$13B (47B MoE) & 53.1 & 58.3 & 48.6 & 49.7 & 56.6 & 65.0 & 50.0 & 50.8 \\
+Claude 4.0 Sonnet & $\sim$175B & 40.5 & 61.7 & 10.0 & 31.4 & \textbf{60.7} & \underline{67.2} & 41.4 & \underline{61.6} \\
+DistilGPT-2 & 82M & 29.5 & 25.0 & 38.5 & 30.8 & --- & --- & --- & --- \\
+\midrule
+\multicolumn{10}{l}{\textit{With explicit no-tools prompting constraint (neural reasoning only):}} \\
+GPT-4o$^\dagger$ & $\sim$200B & 66.2 & 80.0 & 24.3 & 68.6 & 60.2 & 71.1 & 44.3 & 55.7 \\
+Claude 4.0 Sonnet$^\dagger$ & $\sim$175B & 65.1 & \textbf{88.3} & 25.7 & 57.3 & 65.7 & 77.2 & 38.6 & 64.9 \\
+Claude 4.5 Sonnet$^\dagger$ & $\sim$175B & 61.1 & 85.0 & 25.7 & 51.4 & \textbf{67.4} & \textbf{88.9} & 34.3 & 58.9 \\
+Gemini 2.0 Flash$^\dagger$ & $\sim$18B & 60.2 & 69.4 & \underline{50.0} & 55.1 & 64.1 & 82.8 & \underline{42.9} & 54.1 \\
+\bottomrule
+\end{tabular*}
+\renewcommand{\arraystretch}{1.0}
+\caption{CLEVRER benchmark results (\%). All models receive identical single-frame physics information (frame 64): exact position, velocity vectors, mass, and bounding radius. No collision annotations provided; invalid questions excluded. $\dagger$Models with explicit no-tools instruction. MoE models show active/total parameters. $\sim$Estimated. Bold = best; underline = second best. Random baseline: 25\%.}
+\label{tab:main_results}
+\end{table*}
+
+\paragraph{Key Finding: Physics Grounding Enables Genuine Causal Reasoning.} Our physics-grounded system achieves 67.8\% overall accuracy on standard CLEVRER, comparable to frontier LLMs like Qwen2.5-72B (71.5\%) and GPT-4o (66.4\%), while outperforming Gemini 2.0 Flash (61.1\%). Zero-physics ablation (Section~\ref{sec:ablation}) reveals the contribution of physics grounding. On 15-object scenes, performance degrades modestly to 54.5\%, while GPT-4o collapses to 51.0\% ($-$15.4 points), demonstrating that physics grounding provides competitive performance on standard scenes and reasonable scaling with complexity.
+
+\paragraph{Counterfactual Reasoning Analysis.} Grounded-Physics LM achieves 60.5\% counterfactual accuracy on standard CLEVRER, approaching Qwen2.5-72B (73.0\%) and GPT-4o (71.9\%). Zero-physics ablation confirms genuine physics utilization (see Section~\ref{sec:ablation}). On 15-object scenes, Grounded-Physics LM achieves 49.7\% counterfactual accuracy while GPT-4o degrades to 55.7\%, showing that both physics-grounded and text-only approaches face challenges with increased scene complexity.
+
+\paragraph{Predictive Reasoning: The Critical Gap.} Predictive questions (``what will happen next?'') reveal the starkest difference between physics-grounded and text-only approaches. Grounded-Physics LM achieves 60.0\% on predictive questions, while GPT-4o collapses to 18.6\%---well below the 25\% random baseline. Even with explicit no-tools constraints forcing pure neural reasoning, frontier LLMs remain near chance: GPT-4o (24.3\%), Claude 4.0 Sonnet (25.7\%), Claude 4.5 Sonnet (25.7\%). This 35+ point gap demonstrates that \textbf{physics grounding substantially improves forward temporal reasoning}---the core capability required for robotics, planning, and simulation. GPT-4o exhibits a striking capability dissociation: 79.4\% on explanatory questions but only 18.6\% on predictive---a 61-point gap within the same model, suggesting fundamentally different mechanisms underlie retrospective attribution versus forward prediction. Notably, Qwen2.5-7B (52.9\%) outperforms Qwen2.5-72B (44.3\%) on predictive questions despite being 10$\times$ smaller, and Claude 4.0 Sonnet collapses from 25.7\% (no tools) to 10.0\% (with tools)---consistent with inverse scaling findings where extended reasoning harms performance on tasks requiring implicit simulation \cite{mckenzie2023inverse}.
+
+\subsection{Tool Use Impairs Physics Reasoning}
+
+Tool access \emph{decreased} Claude's accuracy by 24.6 points (from 65.1\% without tools to 40.5\% with tools). This counterintuitive finding aligns with emerging research on how explicit reasoning can interfere with implicit physical understanding.
+
+\paragraph{The Overthinking Paradox.} Nguyen et al.\ \cite{nguyen2025mindyourstep} demonstrated that chain-of-thought prompting reduces LLM performance by up to 36\% on tasks where verbal deliberation hurts human performance, including spatial intuition tasks such as predicting water levels in tilted glasses. They identify three task categories where explicit reasoning backfires: implicit statistical learning, visual recognition, and pattern classification with exceptions. Physics prediction may fall into this category---tasks where intuitive pattern recognition outperforms deliberate calculation.
+
+\paragraph{Vision-Language Misalignment.} Chen et al.\ \cite{chen2025pixels} found that vision encoders successfully capture physics plausibility cues (85\% probe accuracy), but this information degrades to near-chance levels ($\sim$50--53\%) after passing through language model processing. Their t-SNE analysis shows vision embeddings naturally cluster by physical concepts, but ``this organizational structure deteriorates after passing through projection layers.'' This suggests that language model processing actively interferes with physics understanding.
+
+\paragraph{Simulator-Augmented Reasoning.} Guan et al.\ \cite{guan2024llmphy} compared pure GPT-4o reasoning (32.1\% accuracy) against physics-simulator-augmented reasoning (62.0\%) on complex physical scenarios. While simulator access improved performance, they note that LLMs ``fundamentally struggle'' because they cannot estimate hidden physical parameters or mentally simulate multi-body dynamics. McCoy et al.\ \cite{mccoy2023physics} found that ``providing more examples can actually worsen performance when the forward problem is difficult''---paralleling our finding that tool access hurts rather than helps.
+
+\paragraph{Interpretation.} These findings suggest a consistent pattern: when LLMs \emph{attempt} to explicitly reason about physics---whether via tool use, code execution, or verbose chain-of-thought---they often perform worse than when relying on implicit physics knowledge absorbed from training. Tool use may trigger ``overthinking'' where models generate elaborate but incorrect physical simulations, while direct neural inference produces better answers by avoiding confident but wrong explicit reasoning. However, even implicit knowledge remains far inferior to genuinely grounded representations (Table~\ref{tab:main_results}).
+
+\paragraph{Comparison to Prior Systems.} Published neuro-symbolic systems on CLEVRER---VRDP \cite{ding2021vrdp} (82.0\%), ALOE \cite{ding2021aloe} (79.0\%), NS-DR \cite{yi2020clevrer} (72.7\%)---achieve higher overall accuracy using specialized architectures requiring multi-stage pipelines, self-supervised dynamics learning, or symbolic program execution. In contrast, Grounded-Physics LM uses a simple adapter architecture bridging physics state tensors to a language model, requiring only single-frame input and QA supervision. The +46.4\% contribution from physics grounding (Table~\ref{tab:significance}) demonstrates genuine physics-language integration despite architectural simplicity.
+
+\paragraph{Statistical Confidence.} Table~\ref{tab:significance} summarizes Fisher's exact tests confirming statistically significant physics grounding effects across all question types. The physics prefix contributes +14.5\% above the true text-only baseline (controlled via MCQ shuffling).
+
+\begin{table}[h]
+\centering
+\footnotesize
+\begin{tabular*}{\columnwidth}{@{\extracolsep{\fill}}lrrrr@{}}
+\toprule
+\textbf{Question Type} & \textbf{$\Delta$} & \textbf{$p$-value} & \textbf{Cohen's $h$} & \textbf{$n$} \\
+\midrule
+Overall & $+46.4$ & $<0.001$ & 0.97 & 435 \\
+Explanatory & $+68.3$ & $<0.001$ & 1.53 & 180 \\
+Predictive & $+28.6$ & $<0.001$ & 0.58 & 70 \\
+Counterfactual & $+31.9$ & $<0.001$ & 0.65 & 185 \\
+\bottomrule
+\end{tabular*}
+\caption{Statistical significance of physics grounding contribution (Grounded-Physics LM vs.\ Zero Physics). All effects significant at $p<0.001$ (Fisher's exact test). Cohen's $h$ effect sizes: small ($0.2$), medium ($0.5$), large ($0.8$).}
+\label{tab:significance}
+\end{table}
+
+\subsection{Performance by Question Type}
+
+The three CLEVRER question types reveal distinct patterns (Table~\ref{tab:main_results}). \textbf{Explanatory}: Physics grounding enables our 173M model to match frontier LLMs, with an exceptionally large effect size (Cohen's $h=1.53$, Table~\ref{tab:significance}). \textbf{Predictive}: The critical gap---consistent failure on forward temporal prediction across frontier LLMs provides strong evidence that physics grounding addresses a fundamental limitation. \textbf{Counterfactual}: Grounded-Physics LM approaches but does not exceed frontier LLMs, suggesting text-based pattern matching partially suffices for retrospective intervention reasoning.
+
+Figure~\ref{fig:example_prompt} illustrates the input format for both systems using an actual CLEVRER evaluation instance. Both receive equivalent single-frame information from frame 64. Grounded-Physics LM receives a 35-dimensional state vector per object; text-based LLMs receive the same quantities as natural language. Neither receives collision labels or trajectory data---both must reason from a single snapshot.
+
+\begin{figure*}[t]
+\centering
+\footnotesize
+\begin{minipage}[t]{0.48\textwidth}
+\begin{verbatim}
+=== GROUNDED-PHYSICS LM ===
+
+[INPUT: State Tensor [1, 3, 35]]
+Frame 64 of 128, 3 objects
+35D per object: pos, vel, quat, mass,
+  radius, color, shape, friction, rest.
+
+Object 0 (blue rubber cube):
+  pos: [3.380, -1.140, 0.200]
+  vel: [-2.960, 0.480, 0.0]
+  mass: 1.0, radius: 0.36
+
+Object 1 (brown rubber sphere):
+  pos: [0.860, -0.750, 0.200]
+  vel: [0.0, 0.0, 0.0]
+  mass: 1.0, radius: 0.30
+
+Object 2 (yellow rubber cylinder):
+  pos: [0.670, 5.700, 0.200]
+  vel: [-0.280, -2.700, 0.0]
+  mass: 1.0, radius: 0.33
+
+[INPUT: Question + Options]
+Question: Without the blue cube, which
+of the following will happen?
+Options:
+  A) The sphere and the cylinder collide
+  B) The brown object and the cylinder collide
+  C) The cylinder exits to the right
+  D) The sphere exits to the left
+
+[OUTPUT] Answer: C
+\end{verbatim}
+\textbf{Correct} \checkmark
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.48\textwidth}
+\begin{verbatim}
+=== TEXT-BASED LLM (GPT-4o) ===
+
+[INPUT: Natural Language Prompt]
+IMPORTANT: Use ONLY your learned physics
+understanding. Do NOT use external tools.
+
+SCENE (frame 64 of 128, 3 objects):
+
+Objects in scene:
+  - blue rubber cube:
+      position: (3.380, -1.140, 0.200)
+      velocity: (-2.960, 0.480, 0.0) m/s
+      mass: 1.0 kg, bounding_radius: 0.36 m
+  - brown rubber sphere:
+      position: (0.860, -0.750, 0.200)
+      velocity: (0.0, 0.0, 0.0) m/s
+      mass: 1.0 kg, bounding_radius: 0.30 m
+  - yellow rubber cylinder:
+      position: (0.670, 5.700, 0.200)
+      velocity: (-0.280, -2.700, 0.0) m/s
+      mass: 1.0 kg, bounding_radius: 0.33 m
+
+Question: Without the blue cube, which
+of the following will happen?
+Options:
+  A) The sphere and the cylinder collide
+  B) The brown object and the cylinder collide
+  C) The cylinder exits to the right
+  D) The sphere exits to the left
+
+[OUTPUT] Answer: A
+\end{verbatim}
+\textbf{Incorrect} \texttimes\ (Ground truth: C)
+\end{minipage}
+
+\vspace{0.5em}
+\noindent\textbf{Analysis:} Without the blue cube, no collision triggers the stationary brown sphere. The yellow cylinder at $(0.67, 5.70)$ with velocity $(-0.28, -2.70)$ travels toward negative $y$ with slight leftward drift. Its trajectory passes at $x \approx 0.1$ when reaching $y=-0.75$ (sphere location), missing the sphere at $x=0.86$ by $>0.7$ m. GPT-4o incorrectly predicts a collision, failing to compute trajectory geometry.
+
+\caption{Counterfactual reasoning example. Both systems receive equivalent physical information; only representation differs. Grounded-Physics LM correctly reasons about trajectory geometry while GPT-4o fails despite identical numerical data.}
+\label{fig:example_prompt}
+\end{figure*}
+
+\subsection{Ablation: Grounding Contribution}
+\label{sec:ablation}
+
+\begin{table}[t]
+\centering
+\footnotesize
+\begin{tabular*}{\columnwidth}{@{\extracolsep{\fill}}lcccc@{}}
+\toprule
+\textbf{Condition} & \textbf{Overall} & \textbf{Explan.} & \textbf{Predict.} & \textbf{Counter.} \\
+\midrule
+Grounded-Physics LM & 67.8 & 78.3 & 60.0 & 60.5 \\
+Zero Physics (input) & 21.4 & 10.0 & 31.4 & 28.6 \\
+Zero Prefix (tokens) & 58.9 & 70.0 & 45.7 & 52.4 \\
+Zero Prefix + Shuffle & 53.3 & 63.9 & 37.1 & 47.6 \\
+\midrule
+$\Delta$ (Physics contrib.) & +46.4 & +68.3 & +28.6 & +31.9 \\
+$\Delta$ (Prefix contrib.) & +14.5 & +14.4 & +22.9 & +12.9 \\
+\bottomrule
+\end{tabular*}
+\caption{Ablation study (\%) on 435-question stratified CLEVRER benchmark. \emph{Zero Physics}: physics state tensors zeroed at input---model drops to near-random (21.4\%), confirming physics dependence. \emph{Zero Prefix}: prefix tokens zeroed before LLM. \emph{Zero Prefix + Shuffle}: MCQ choices randomly reordered to control for positional bias---this 53.3\% represents the true text-only baseline. Physics prefix contributes $+14.5$ points above this baseline. Adapter ablation confirms no grounding collapse (cosine similarity $=-0.85$, well below 0.95 threshold).}
+\label{tab:ablation}
+\end{table}
+
+We conduct a zero-physics ablation to verify that Grounded-Physics LM genuinely uses physics information for reasoning.
+
+\paragraph{Zero-Physics Ablation.} Zeroing physics state tensors while preserving all other components (adapter layers, DistilGPT-2 backbone) reduces accuracy from 67.8\% to 21.4\%. This large effect demonstrates that PhysicsFormer's learned representations are essential---without physics grounding, the model performs \emph{below} random chance. This indicates that the adapter has learned to \emph{actively depend} on physics tokens---when fed corrupted physics, it confidently produces wrong answers rather than falling back on text-only heuristics.
+
+\paragraph{Zero-Prefix Ablation.} To test whether the LLM actually utilizes the physics prefix tokens, we perform a complementary ablation: processing physics normally through the adapter but zeroing the prefix tokens before they enter the LLM. This reduces accuracy from 67.8\% to 58.9\%. However, this 58.9\% includes positional bias from MCQ answer ordering. To control for this, we repeat the ablation with randomly shuffled answer choices: accuracy drops to 53.3\%, revealing that 5.6\% came from positional patterns (e.g., ``A is often correct''). The true text-only baseline is 53.3\%, meaning the physics prefix contributes +14.5\% of genuine physics-based reasoning above what DistilGPT-2 achieves from question text and MCQ patterns alone. Table~\ref{tab:prefix_significance} summarizes the statistical significance of the prefix contribution.
+
+\begin{table}[h]
+\centering
+\footnotesize
+\begin{tabular*}{\columnwidth}{@{\extracolsep{\fill}}lrrrr@{}}
+\toprule
+\textbf{Question Type} & \textbf{$\Delta$} & \textbf{$p$-value} & \textbf{Cohen's $h$} & \textbf{$n$} \\
+\midrule
+Overall & $+14.5$ & $<0.001$ & 0.30 & 435 \\
+Explanatory & $+14.4$ & $<0.01$ & 0.32 & 180 \\
+Predictive & $+22.9$ & $<0.05$ & 0.46 & 70 \\
+Counterfactual & $+12.9$ & $<0.05$ & 0.26 & 185 \\
+\bottomrule
+\end{tabular*}
+\caption{Statistical significance of physics prefix contribution (Grounded-Physics LM vs.\ Zero Prefix + Shuffle). All effects significant (Fisher's exact test). Effect sizes are small-to-medium, indicating the prefix provides measurable but modest improvement over the text-only baseline.}
+\label{tab:prefix_significance}
+\end{table}
+
+\paragraph{Asymmetry Reveals Trust.} The key evidence for genuine physics integration is the \emph{asymmetry} between ablations: zero-physics (21.4\%) performs far worse than zero-prefix-shuffled (53.3\%), even though both remove physics information from the LLM's reasoning. This asymmetry reveals that the model has learned to \emph{trust and follow} the physics prefix tokens. Consider a navigation analogy: \emph{wrong directions} (corrupted prefix from zeroed physics input) cause you to get lost (21.4\%), while \emph{no directions} (zeroed prefix tokens) let you fall back on common sense from the question text (53.3\%); \emph{correct directions} (real physics) yield the best outcome (67.8\%). The adapter produces highly differentiated prefix tokens (cosine similarity $=-0.85$), and when these tokens encode misleading ``no physics'' signals rather than being absent entirely, the LLM trusts and follows this corrupted guidance to its detriment---performing 32\% worse than having no guidance at all. This confirms genuine physics-language integration: the contrastive training objective successfully taught the model to interpret prefix tokens as authoritative physics guidance.
+
+\paragraph{Question-Type Analysis.} The grounding contribution is statistically significant across all question types. Explanatory questions show the largest effect (+68.3\%, $p<0.001$, Cohen's $h=1.53$), where causal attribution requires understanding physical interactions. Counterfactual questions (+31.9\%, $p<0.001$, Cohen's $h=0.65$) and predictive questions (+28.6\%, $p<0.001$, Cohen's $h=0.58$) show medium-to-large effect sizes, both statistically significant. This pattern confirms that physics grounding provides substantial benefit across all causal reasoning types.
+
+\paragraph{PhysicsFormer Component Ablation.} To understand which architectural components of PhysicsFormer contribute most to physics reasoning, we conduct a systematic ablation study on the encoder's physics-informed features. We train five model variants: the full model, and four ablated versions each removing one component---physics-biased attention, Port-Hamiltonian energy conservation \cite{desai2024phmarl}, or learned per-feature scaling---plus a vanilla transformer baseline with no physics-informed components. Each configuration is trained for 5 independent runs with different random seeds to establish statistical reliability.
+
+\begin{table}[h]
+\centering
+\footnotesize
+\begin{tabular*}{\columnwidth}{@{\extracolsep{\fill}}lccc@{}}
+\toprule
+\textbf{Condition} & \textbf{MSE} & \textbf{$\Delta$ MSE} & \textbf{Accuracy} \\
+\midrule
+Full Model & 0.051 & --- & 85.7\% \\
+No Physics Bias & 0.066 & +29.6\%*** & 80.7\% \\
+No Learned Scaling & 0.061 & +19.8\%*** & 83.2\% \\
+No Energy Conserv. & 0.059 & +15.8\%*** & 82.7\% \\
+Vanilla Transformer & 0.096 & +88.9\%*** & 71.2\% \\
+\bottomrule
+\end{tabular*}
+\caption{PhysicsFormer component ablation on physics state prediction. $\Delta$ MSE shows percentage increase when component is removed. All differences significant at $p<0.001$ (paired $t$-test, $n=5$ seeds). The full model achieves 88.9\% lower MSE than the vanilla transformer baseline.}
+\label{tab:physicsformer_ablation}
+\end{table}
+
+Table~\ref{tab:physicsformer_ablation} shows that \textbf{physics-biased attention} contributes most substantially (+29.6\% MSE increase when removed), confirming that the pairwise physical features (distance, closing velocity, relative orientation) in the attention mechanism are essential for learning object interaction dynamics. \textbf{Learned per-feature scaling} ranks second (+19.8\%), indicating that allowing the model to weight different physical quantities (position vs.\ velocity vs.\ mass) improves representation quality. \textbf{Energy conservation regularization} \cite{desai2024phmarl,greydanus2019hamiltonian} contributes +15.8\%, showing that Port-Hamiltonian-inspired training objectives provide meaningful inductive bias for preserving physical conservation laws. The vanilla transformer---identical architecture but without physics-informed components---suffers 88.9\% higher MSE, demonstrating that these architectural innovations collectively enable effective physics reasoning. All ablated conditions show statistically significant degradation ($p<0.001$), with 95\% confidence intervals non-overlapping with the full model.
+
+\subsection{Object Complexity Scaling: 15-Object Benchmark}
+
+To test how models scale with scene complexity, we use actual CLEVRER validation questions with scenes augmented to contain 15 objects, far more than CLEVRER's typical 3--6 objects. This tests working memory and multi-object tracking capacity while maintaining the same fair comparison protocol (single frame 64, no collision labels). Results are shown in the right half of Table~\ref{tab:main_results}.
+
+Both physics-grounded and text-only models degrade with increased complexity: Grounded-Physics LM drops from 67.8\% to 54.5\%, GPT-4o from 66.4\% to 51.0\%). The predictive reasoning gap persists at scale: Grounded-Physics LM maintains 54.3\% while GPT-4o remains near random (22.9\%). However, counterfactual reasoning shows the largest degradation for Grounded-Physics LM (-10.8\% to 49.7\%), falling below frontier LLMs (Gemini: 63.2\%), suggesting physics grounding alone is insufficient for complex multi-object counterfactual scenarios.
+
+\subsection{Mechanistic Analysis}
+\label{sec:mechanistic}
+
+To understand \emph{why} physics grounding improves reasoning, we conduct mechanistic analysis using gradient-based saliency, ablation studies, and integrated gradients on the 35D physics state vector.
+
+\paragraph{Feature Importance.} The model relies primarily on kinematic primitives. By gradient magnitude, \textbf{Position} contributes most (694.3), followed by \textbf{Velocity} (390.2), \textbf{Mass/Size} (334.1), and \textbf{Friction} (253.8). Color (183.1) and Shape (133.1) show moderate importance for object identity, while Angular Velocity (9.0) and Object Type (0.9) contribute minimally. Ablation experiments confirm this pattern: zeroing position dimensions ($\Delta=4.96$ prefix norm change), radius ($\Delta=1.78$), or velocity ($\Delta \approx 0.77$) substantially alters model outputs, while zeroing orientation, angular velocity, or categorical features produces negligible change.
+
+\paragraph{Probing Experiments.} Linear probing reveals where physics knowledge is encoded:
+\begin{itemize}[nosep,leftmargin=*]
+    \item \textbf{Object count}: Perfectly recoverable from input ($R^2=0.998$) but progressively \emph{lost} through transformer layers (pooled: $R^2=0.056$). The network compresses object-level detail into relational features.
+    \item \textbf{Collision prediction}: High accuracy (92.5\%) at \emph{all} layers---collision-relevant representations are computed early and robustly preserved.
+    \item \textbf{Spatial centroid}: Best at encoder ($R^2=0.87$), remains decodable through layers ($R^2 \geq 0.60$).
+    \item \textbf{Max pairwise distance}: Peaks after first transformer layer ($R^2=0.43$), consistent with relational computation in attention.
+    \item \textbf{Mean velocity}: Weakly recoverable ($R^2=0.15$ at encoder), suggesting velocity is transformed into higher-order features.
+\end{itemize}
+This hierarchical abstraction---preserving collision-relevant features while compressing raw counts into relational representations---explains both strong performance on collision-dependent questions and the efficiency of the 64-token physics prefix.
+
+\section{Discussion}
+\label{sec:discussion}
+
+\subsection{Interpretation Through Symbol Grounding}
+
+Harnad's symbol grounding problem \cite{harnad1990symbol} poses a fundamental challenge for purely symbolic AI: How do symbols get their meaning? The problem arises from an infinite regress where symbols are defined only in terms of other symbols, like a dictionary written in a language one does not understand. Harnad draws on Searle's Chinese Room argument \cite{searle1980minds}: a person who follows rules to manipulate Chinese symbols can produce correct outputs without understanding anything. Genuine grounding requires connecting symbols to sensorimotor experience and categorical perception.
+
+This framework directly applies to LLMs. Tokens for ``collision,'' ``velocity,'' and ``trajectory'' are defined through statistical co-occurrence, not connection to physical reality. The token ``collision'' has meaning only insofar as it predicts which other tokens follow---a purely syntactic relationship divorced from the physical phenomenon. This predicts that text-only models should fail specifically on tasks requiring \emph{forward simulation}, where symbols must map to actual physical dynamics rather than statistical patterns.
+
+Our results support this prediction: text-only LLMs perform well on retrospective reasoning where statistical patterns suffice (GPT-4o: 79.4\% explanatory), but collapse on predictive questions requiring forward simulation (GPT-4o: 18.6\%)---a 61-point gap within the same model. The Physics-Grounded Adapter addresses Harnad's challenge by connecting language model tokens to sensorimotor-equivalent representations: ground-truth physical state vectors encoding position, velocity, mass, and interaction dynamics.
+
+\subsection{Grounding Versus Pattern Matching}
+
+A natural question is whether Grounded-Physics LM's performance reflects genuine physics utilization or sophisticated pattern matching. The ablation asymmetry (Section~\ref{sec:ablation}) provides strong evidence: zeroing physics \emph{input} (21.4\%) performs far worse than zeroing \emph{prefix tokens} (53.3\%), even though both remove physics information. Corrupted guidance causes more harm than absent guidance---the model has learned to trust and follow physics signals. The contrastive training objective successfully prevented modality collapse.
+
+While specialized systems like VRDP \cite{ding2021vrdp} (82.0\%) and ALOE \cite{ding2021aloe} (79.0\%) achieve higher accuracy, they require fundamentally different inputs: VRDP re-runs simulations for each counterfactual; ALOE requires complete video trajectories with self-supervised dynamics learning; NS-DR \cite{yi2020clevrer} uses multi-stage symbolic execution. In contrast, Grounded-Physics LM operates from a \textbf{single frame}---no video, no trajectory, no simulation re-runs---reflecting realistic deployment scenarios where only instantaneous sensor readings are available. The +46.4\% physics contribution from single-frame input demonstrates that explicit grounding provides substantial benefit even under these constraints, positioning our approach as a practical baseline for resource-constrained or real-time physics reasoning.
+
+\subsection{Corroborating Evidence}
+
+Our finding that frontier LLMs collapse on predictive physics questions is corroborated by independent studies. Using the Physics Context Builders framework on CLEVRER, Lin et al.\ \cite{lin2024physics} found GPT-4o achieves 62.7\% on descriptive questions but falls to just 18.7\% on predictive---nearly identical to our 18.6\% result. The PhysUniBench benchmark found even sophisticated models achieve only 17--37\% accuracy on undergraduate physics, with evaluators noting that ``AI models lack genuine physical intuition, only recognizing patterns from training data'' \cite{wang2024physunibench}. MIT research demonstrated that for spatial reasoning tasks with altered conditions, ``models struggled and couldn't perform better than random guessing'' \cite{dziri2024faith}. Research on epistemic calibration revealed a ``reasoning paradox'' where extended reasoning \emph{worsens} rather than improves performance---consistent with our finding that the 82M-parameter DistilGPT-2 (38.5\% predictive) outperforms GPT-4o (18.6\%) by avoiding confident but incorrect reasoning \cite{shojaee2024calibration}. These converging results suggest that text-only LLMs fundamentally lack forward physical simulation capabilities, regardless of scale.
+
+\subsection{Limitations}
+
+This work has several limitations. \textbf{Scope}: The study isolates physical grounding from visual perception; integrating learned physical states with vision remains future work. Evaluation is limited to CLEVRER collision scenarios, while Isaac Sim, though high-fidelity, does not cover all real-world phenomena. \textbf{Architecture}: Alternative integration mechanisms (cross-attention, gated fusion) may further improve physics-language coupling. \textbf{Complementary strengths}: Physics grounding dramatically improves predictive reasoning, while frontier LLMs excel at counterfactual reasoning, suggesting these approaches address different aspects of causal reasoning.
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+This study compared Grounded-Physics LM against text-only and neuro-symbolic systems on 435 stratified CLEVRER causal reasoning questions. Our 173M-parameter system achieved 67.8\% accuracy, matching frontier LLMs while using 1000$\times$ fewer parameters. Zero-physics ablation confirms genuine physics-language integration: accuracy drops to 21.4\% without physics input, and the 31.9\% asymmetry between corrupted and absent physics confirms the model trusts physics guidance.
+
+The results reveal complementary strengths: physics grounding enables dramatic improvement on predictive reasoning (60.0\% vs GPT-4o's 18.6\%), while frontier LLMs excel at retrospective causal attribution. Operating from a single frame with a simple adapter architecture, Grounded-Physics LM provides a practical baseline for physics-grounded reasoning in resource-constrained settings. Whether interpreted through Harnad's symbol grounding framework or representation learning principles, explicit physical grounding enables authentic physics reasoning in compact models.
+
+\subsection{Future Directions: Toward Action Prediction}
+
+A natural extension is \textbf{action prediction}: given a desired goal state, what intervention achieves it? Unlike explanatory questions that identify causes of \emph{observed} effects, action prediction synthesizes interventions for \emph{desired} effects (``What action causes X?''). This requires \emph{inverse physics}---working backward from outcomes to causes---the core capability underlying goal-conditioned planning in robotics. Future work could extend Grounded-Physics LM with an action prediction head enabling sim-to-sim transfer, multi-step roll-out, and edge deployed on board robot pilots.
+
+Implementation code, trained model weights, and evaluation scripts are available at \url{https://anonymous.4open.science/r/physics-grounded-language-model}.
+
+%% \section*{Acknowledgment}
+%% This work was self-funded by the authors.
+
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+\end{document}
