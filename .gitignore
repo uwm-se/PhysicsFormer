@@ -5,3 +5,6 @@ openmemory.md
 
 # Model checkpoints
 models/
+
+# OpenMemory - IDE/Assistant specific rules
+.windsurf\rules\openmemory.md
