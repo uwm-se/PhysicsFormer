@@ -1,6 +1,7 @@
 # IDE/Assistant specific
 .claude/
 .windsurf/
+openmemory.md
 
 # Model checkpoints
 models/
