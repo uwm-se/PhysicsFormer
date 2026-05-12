@@ -1,11 +1,10 @@
 """
-Copyright (c) 2026 Anonymous. All rights reserved.
-Author: Anonymous
+Copyright (c) 2026 Style Machine LLC. All rights reserved.
 
 PROPRIETARY AND CONFIDENTIAL. This software is provided for academic review
 and research purposes only. Unauthorized copying, modification, distribution,
 or use of this software, via any medium, is strictly prohibited without prior
-written permission from Anonymous.
+written permission from Style Machine LLC.
 """
 
 """
@@ -653,6 +652,57 @@ ISAAC_SCHEMAS: Dict[str, SchemaConfig] = {
         ]
     ),
     
+    # Aliases for HDF5 files on disk that use different names
+    'isaac_multi_body_collision': SchemaConfig(
+        name='isaac_multi_body_collision',
+        task_name='MultiBallCollision',
+        description='Multiple rigid bodies colliding on a surface',
+        max_steps=300,
+        num_objects_range=(5, 16),
+        object_extractors=[
+            {
+                'name': 'balls',
+                'source_type': 'rigid_prim_view',
+                'view_attr': '_balls',
+                'properties': ObjectProperties(
+                    mass=0.3, radius=0.03, color=(0.2, 0.5, 0.8),
+                    shape_type=SHAPE_TYPES['sphere'], is_static=False, friction=0.2
+                ),
+            },
+            {
+                'name': 'table',
+                'source_type': 'rigid_prim_view',
+                'view_attr': '_table',
+                'properties': ObjectProperties(
+                    mass=100.0, radius=1.0, color=(0.1, 0.5, 0.2),
+                    shape_type=SHAPE_TYPES['box'], is_static=True, friction=0.3
+                ),
+            },
+        ]
+    ),
+
+    'isaac_ramp_roll': SchemaConfig(
+        name='isaac_ramp_roll',
+        task_name='RampRolling',
+        description='Objects roll/slide down inclined ramp with varying friction',
+        max_steps=200,
+        num_objects_range=(2, 5),
+        object_extractors=[
+            {
+                'name': 'ramp',
+                'source_type': 'rigid_prim_view',
+                'view_attr': '_ramp',
+                'properties': RAMP_PROPERTIES,
+            },
+            {
+                'name': 'rolling_objects',
+                'source_type': 'rigid_prim_view',
+                'view_attr': '_rolling_objects',
+                'properties': BALL_PROPERTIES,
+            },
+        ]
+    ),
+
     'isaac_wall_collision': SchemaConfig(
         name='isaac_wall_collision',
         task_name='WallCollision',

@@ -1,13 +1,13 @@
 """
-Copyright (c) 2026 Anonymous. All rights reserved.
-Author: Anonymous
+Copyright (c) 2026 Style Machine LLC. All rights reserved.
 
 PROPRIETARY AND CONFIDENTIAL. This software is provided for academic review
 and research purposes only. Unauthorized copying, modification, distribution,
 or use of this software, via any medium, is strictly prohibited without prior
-written permission from Anonymous.
+written permission from Style Machine LLC.
 """
 
+import os
 """
 HDF5 Dataset for CLEVRER Training Data
 
@@ -151,7 +151,7 @@ def collate_clevrer_hdf5(batch: List[Dict]) -> Dict:
 
 if __name__ == '__main__':
     # Test the dataset
-    dataset = CLEVRERHDF5Dataset('D:/physics-former-data/clevrer_training_expanded.h5', max_samples=100)
+    dataset = CLEVRERHDF5Dataset(os.environ.get('CLEVRER_H5', 'data/clevrer_training_expanded.h5'), max_samples=100)
     
     print(f"\nDataset size: {len(dataset)}")
     

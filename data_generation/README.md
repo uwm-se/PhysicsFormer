@@ -86,10 +86,10 @@ See [qa_generation/README.md](qa_generation/README.md) for question type options
 If you use this data generation pipeline, please cite:
 
 ```bibtex
-@inproceedings{pokora2026physics,
-  title={Physics-Grounded Language Models for Embodied Reasoning},
-  author={Pokora, Jesse},
-  booktitle={COMPSAC 2026},
+@inproceedings{pokora2026grounded,
+  title={Grounded Physics Representations Enable Causal Reasoning in Language Models},
+  author={Pokora, Jesse and Zhao, Tian},
+  booktitle={Proc. IEEE Conf. on Computers, Software, and Applications (COMPSAC)},
   year={2026}
 }
 ```

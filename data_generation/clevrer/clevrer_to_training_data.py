@@ -1,11 +1,10 @@
 """
-Copyright (c) 2026 Anonymous. All rights reserved.
-Author: Anonymous
+Copyright (c) 2026 Style Machine LLC. All rights reserved.
 
 PROPRIETARY AND CONFIDENTIAL. This software is provided for academic review
 and research purposes only. Unauthorized copying, modification, distribution,
 or use of this software, via any medium, is strictly prohibited without prior
-written permission from Anonymous.
+written permission from Style Machine LLC.
 """
 
 """
@@ -352,9 +351,25 @@ def save_clevrer_training_data(
         print("No samples to save")
         return
 
-    # Get dimensions from first sample
-    state_shape = samples[0]['states'].shape
-    mask_shape = samples[0]['mask'].shape
+    # Scan ALL samples for max object count (scenes have variable numbers)
+    seq_len = samples[0]['states'].shape[0]
+    state_dim = samples[0]['states'].shape[2]
+    max_objects = 0
+    object_count_hist = {}
+    for s in samples:
+        n_obj = s['states'].shape[1]
+        max_objects = max(max_objects, n_obj)
+        object_count_hist[n_obj] = object_count_hist.get(n_obj, 0) + 1
+
+    print(f"Object count distribution across {n_samples:,} samples:")
+    for n_obj in sorted(object_count_hist.keys()):
+        count = object_count_hist[n_obj]
+        pct = 100 * count / n_samples
+        print(f"  {n_obj} objects: {count:,} samples ({pct:.1f}%)")
+    print(f"Using max_objects={max_objects} (no truncation)")
+
+    state_shape = (seq_len, max_objects, state_dim)
+    mask_shape = (seq_len, max_objects)
 
     with h5py.File(output_path, 'w') as f:
         # Create datasets for tensor data
@@ -379,21 +394,36 @@ def save_clevrer_training_data(
         metadata_ds = f.create_dataset('metadata', shape=(n_samples,), dtype=dt)
         numerical_targets_ds = f.create_dataset('numerical_targets', shape=(n_samples,), dtype=dt)
 
-        # Fill datasets
+        # Fill datasets (pad smaller scenes to max_objects)
+        padded_count = 0
         for i, sample in enumerate(tqdm(samples, desc="Saving to HDF5")):
-            states_ds[i] = sample['states'].numpy()
-            masks_ds[i] = sample['mask'].numpy()
+            states_np = sample['states'].numpy()
+            mask_np = sample['mask'].numpy()
+            n_obj = states_np.shape[1]
+
+            if n_obj < max_objects:
+                pad_obj = max_objects - n_obj
+                states_np = np.pad(states_np, ((0, 0), (0, pad_obj), (0, 0)))
+                mask_np = np.pad(mask_np, ((0, 0), (0, pad_obj)))
+                padded_count += 1
+
+            states_ds[i] = states_np
+            masks_ds[i] = mask_np
             questions_ds[i] = sample['question']
             answers_ds[i] = sample['answer']
             question_types_ds[i] = sample['question_type']
             metadata_ds[i] = json.dumps(sample['metadata'])
             numerical_targets_ds[i] = json.dumps(sample['numerical_targets'])
 
-        # Store metadata
+        # Store metadata (include individual dims for notebook compatibility)
         f.attrs['num_samples'] = n_samples
+        f.attrs['seq_len'] = seq_len
+        f.attrs['num_objects'] = max_objects
+        f.attrs['state_dim'] = state_dim
         f.attrs['state_shape'] = state_shape
-        f.attrs['format_version'] = '1.0'
+        f.attrs['format_version'] = '2.0'
 
+    print(f"  Padded {padded_count:,} samples (had fewer than {max_objects} objects)")
     print(f"Saved {n_samples} samples to {output_path}")
 
 
@@ -456,9 +486,10 @@ def convert_clevrer_dataset_batched(
     stats = {'descriptive': 0, 'explanatory': 0, 'predictive': 0, 'counterfactual': 0}
     total_samples = 0
 
-    # First pass: collect all samples to get dimensions
+    # First pass: collect all samples and track max object count
     all_samples = []
-    state_shape = None
+    max_objects = 0
+    object_count_hist = {}
 
     for batch_start in range(0, total_scenes, batch_size):
         batch_end = min(batch_start + batch_size, total_scenes)
@@ -483,8 +514,9 @@ def convert_clevrer_dataset_batched(
                     if clevrer_type in stats:
                         stats[clevrer_type] += 1
 
-                    if state_shape is None:
-                        state_shape = sample['states'].shape
+                    n_obj = sample['states'].shape[1]
+                    max_objects = max(max_objects, n_obj)
+                    object_count_hist[n_obj] = object_count_hist.get(n_obj, 0) + 1
 
                     all_samples.append(sample)
                     total_samples += 1
@@ -493,12 +525,24 @@ def convert_clevrer_dataset_batched(
                 continue
 
         gc.collect()
-        print(f"  Total samples so far: {total_samples}")
+        print(f"  Total samples so far: {total_samples} (max objects: {max_objects})")
 
-    # Second pass: write to HDF5
-    if all_samples and state_shape is not None:
-        print(f"\nWriting {total_samples} samples to HDF5...")
-        mask_shape = all_samples[0]['mask'].shape
+    # Report object count distribution
+    print(f"\nObject count distribution across {total_samples:,} samples:")
+    for n_obj in sorted(object_count_hist.keys()):
+        count = object_count_hist[n_obj]
+        pct = 100 * count / total_samples
+        print(f"  {n_obj} objects: {count:,} samples ({pct:.1f}%)")
+    print(f"Using max_objects={max_objects} (no truncation)")
+
+    # Second pass: write to HDF5 with uniform shape
+    if all_samples and max_objects > 0:
+        seq_len = all_samples[0]['states'].shape[0]
+        state_dim = all_samples[0]['states'].shape[2]
+        state_shape = (seq_len, max_objects, state_dim)
+        mask_shape = (seq_len, max_objects)
+
+        print(f"\nWriting {total_samples} samples to HDF5 with shape {state_shape}...")
 
         with h5py.File(output_path, 'w') as f:
             # Create datasets
@@ -518,9 +562,20 @@ def convert_clevrer_dataset_batched(
             metadata_ds = f.create_dataset('metadata', shape=(total_samples,), dtype=dt)
             numerical_targets_ds = f.create_dataset('numerical_targets', shape=(total_samples,), dtype=dt)
 
+            padded_count = 0
             for i, sample in enumerate(tqdm(all_samples, desc="Writing HDF5")):
-                states_ds[i] = sample['states'].numpy()
-                masks_ds[i] = sample['mask'].numpy()
+                states_np = sample['states'].numpy()
+                mask_np = sample['mask'].numpy()
+                n_obj = states_np.shape[1]
+
+                if n_obj < max_objects:
+                    pad_obj = max_objects - n_obj
+                    states_np = np.pad(states_np, ((0, 0), (0, pad_obj), (0, 0)))
+                    mask_np = np.pad(mask_np, ((0, 0), (0, pad_obj)))
+                    padded_count += 1
+
+                states_ds[i] = states_np
+                masks_ds[i] = mask_np
                 questions_ds[i] = sample['question']
                 answers_ds[i] = sample['answer']
                 question_types_ds[i] = sample['question_type']
@@ -528,8 +583,13 @@ def convert_clevrer_dataset_batched(
                 numerical_targets_ds[i] = json.dumps(sample['numerical_targets'])
 
             f.attrs['num_samples'] = total_samples
+            f.attrs['seq_len'] = seq_len
+            f.attrs['num_objects'] = max_objects
+            f.attrs['state_dim'] = state_dim
             f.attrs['state_shape'] = state_shape
-            f.attrs['format_version'] = '1.0'
+            f.attrs['format_version'] = '2.0'
+
+        print(f"  Padded {padded_count:,} samples (had fewer than {max_objects} objects)")
 
     print(f"\nFinal stats:")
     for q_type, count in stats.items():

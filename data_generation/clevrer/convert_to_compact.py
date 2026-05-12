@@ -1,11 +1,10 @@
 """
-Copyright (c) 2026 Anonymous. All rights reserved.
-Author: Anonymous
+Copyright (c) 2026 Style Machine LLC. All rights reserved.
 
 PROPRIETARY AND CONFIDENTIAL. This software is provided for academic review
 and research purposes only. Unauthorized copying, modification, distribution,
 or use of this software, via any medium, is strictly prohibited without prior
-written permission from Anonymous.
+written permission from Style Machine LLC.
 """
 
 """Convert large CLEVRER JSON to compact HDF5 format for efficient training."""
@@ -22,31 +21,43 @@ def convert_json_to_hdf5(json_path: Path, hdf5_path: Path, chunk_size: int = 100
     """Stream-convert large JSON to HDF5 format."""
     print(f"Converting {json_path} to {hdf5_path}...")
     
-    # First pass: count samples and get dimensions
-    print("Counting samples...")
+    # First pass: count samples and scan ALL for max object count
+    print("Pass 1: Counting samples and scanning object counts...")
     with open(json_path, 'r') as f:
-        # Skip opening bracket
-        f.readline()
+        f.readline()  # Skip opening bracket
         sample_count = 0
         first_sample = None
-        
+        max_objects_seen = 0
+        object_count_hist = {}
+
         for line in f:
             line = line.strip()
             if line.startswith('{'):
                 if line.endswith(','):
                     line = line[:-1]
+                sample = json.loads(line)
                 if first_sample is None:
-                    first_sample = json.loads(line)
+                    first_sample = sample
+                n_obj = np.array(sample['states']).shape[1]
+                max_objects_seen = max(max_objects_seen, n_obj)
+                object_count_hist[n_obj] = object_count_hist.get(n_obj, 0) + 1
                 sample_count += 1
                 if sample_count % 10000 == 0:
-                    print(f"  Counted {sample_count} samples...")
-    
+                    print(f"  Scanned {sample_count} samples (max objects so far: {max_objects_seen})...")
+
     print(f"Total samples: {sample_count}")
-    
-    # Get dimensions from first sample
+    print(f"Object count distribution across all samples:")
+    for n_obj in sorted(object_count_hist.keys()):
+        count = object_count_hist[n_obj]
+        pct = 100 * count / sample_count
+        print(f"  {n_obj} objects: {count:,} samples ({pct:.1f}%)")
+
+    # Use the TRUE max across all samples (not just the first)
     states = np.array(first_sample['states'])
-    seq_len, num_objects, state_dim = states.shape
+    seq_len, _, state_dim = states.shape
+    num_objects = max_objects_seen
     print(f"State shape: ({seq_len}, {num_objects}, {state_dim})")
+    print(f"  num_objects set to {num_objects} (max across all {sample_count:,} samples — no truncation)")
     
     # Create HDF5 file with chunked datasets
     with h5py.File(hdf5_path, 'w') as hf:
@@ -84,56 +95,56 @@ def convert_json_to_hdf5(json_path: Path, hdf5_path: Path, chunk_size: int = 100
             compression='gzip'
         )
         
-        # Second pass: write data
-        print("Writing data...")
+        # Second pass: write data (padding only — no truncation possible)
+        print("Pass 2: Writing data...")
+        padded_count = 0
         with open(json_path, 'r') as f:
             f.readline()  # Skip opening bracket
             idx = 0
-            
+
             for line in tqdm(f, total=sample_count, desc="Converting"):
                 line = line.strip()
                 if not line.startswith('{'):
                     continue
                 if line.endswith(','):
                     line = line[:-1]
-                
+
                 try:
                     sample = json.loads(line)
-                    
-                    # Handle variable object counts by padding
+
                     states = np.array(sample['states'], dtype=np.float32)
                     mask = np.array(sample['mask'], dtype=np.float32)
-                    
-                    # Pad if needed
+
+                    # Pad smaller scenes up to max (zero-padded, mask=0)
                     if states.shape[1] < num_objects:
                         pad_objs = num_objects - states.shape[1]
                         states = np.pad(states, ((0,0), (0,pad_objs), (0,0)))
                         mask = np.pad(mask, ((0,0), (0,pad_objs)))
-                    elif states.shape[1] > num_objects:
-                        states = states[:, :num_objects, :]
-                        mask = mask[:, :num_objects]
-                    
+                        padded_count += 1
+
                     states_ds[idx] = states
                     masks_ds[idx] = mask
                     questions_ds[idx] = sample['question']
                     answers_ds[idx] = sample['answer']
                     question_types_ds[idx] = sample['question_type']
                     metadata_ds[idx] = json.dumps(sample['metadata'])
-                    
+
                     num_targets = sample.get('numerical_targets', {})
                     num_targets_ds[idx] = [
                         num_targets.get('count', 0.0),
                         num_targets.get('value', 0.0)
                     ]
-                    
+
                     idx += 1
-                    
+
                     if idx % 10000 == 0:
                         gc.collect()
-                        
+
                 except json.JSONDecodeError as e:
                     print(f"  Skipping malformed line at {idx}: {e}")
                     continue
+
+        print(f"  Padded {padded_count:,} samples (had fewer than {num_objects} objects)")
         
         # Store metadata
         hf.attrs['num_samples'] = sample_count

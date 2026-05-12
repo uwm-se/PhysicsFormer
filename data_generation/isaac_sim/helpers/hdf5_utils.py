@@ -1,11 +1,10 @@
 """
-Copyright (c) 2026 Anonymous. All rights reserved.
-Author: Anonymous
+Copyright (c) 2026 Style Machine LLC. All rights reserved.
 
 PROPRIETARY AND CONFIDENTIAL. This software is provided for academic review
 and research purposes only. Unauthorized copying, modification, distribution,
 or use of this software, via any medium, is strictly prohibited without prior
-written permission from Anonymous.
+written permission from Style Machine LLC.
 """
 
 """

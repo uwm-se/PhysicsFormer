@@ -1,7 +1,11 @@
 # IDE/Assistant specific
-.claude/
+.claude
 .windsurf/
 openmemory.md
+
+# Python
+__pycache__/
+*.pyc
 
 # Model checkpoints
 models/

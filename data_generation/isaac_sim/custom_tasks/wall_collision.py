@@ -1,11 +1,4 @@
-# Copyright (c) 2026 Anonymous. All rights reserved.
-# Author: Anonymous
-#
-# PROPRIETARY AND CONFIDENTIAL. This software is provided for academic review
-# and research purposes only. Unauthorized copying, modification, distribution,
-# or use of this software, via any medium, is strictly prohibited without prior
-# written permission from Anonymous.
-#
+# Copyright (c) 2024
 # Physics variety task for PhysicsFormer training
 #
 # WallCollision: High-velocity ball strikes massive stationary cube horizontally

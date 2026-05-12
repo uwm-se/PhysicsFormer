@@ -7,8 +7,7 @@ Converts CLEVRER scene annotations to the format expected by the ablation study:
 
 Output format: HDF5 for reproducibility and cross-platform compatibility.
 
-Author: Anonymous
-Copyright (c) 2026 Anonymous. All rights reserved.
+Copyright (c) 2026 Style Machine LLC. All rights reserved.
 """
 
 import json
@@ -205,7 +204,7 @@ def process_scene(scene_path: Path, seq_len: int = 32, num_objects: int = 10) ->
 
 def main():
     parser = argparse.ArgumentParser(description='Generate physics_sequences.h5 from CLEVRER')
-    parser.add_argument('--clevrer-path', type=str, default='D:/clevrer/scenes/validation',
+    parser.add_argument('--clevrer-path', type=str, default='$CLEVRER_DIR/scenes/validation',
                         help='Path to CLEVRER validation scenes')
     parser.add_argument('--output-dir', type=str, default=None,
                         help='Output directory (default: Google Drive or local)')
