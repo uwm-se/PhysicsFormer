@@ -19,16 +19,6 @@ The submodules here are organised by *what kind of agreement* they measure:
                          behind ``semantic_equivalence_audit``). Resolves
                          CLEVRER MCQ event templates against the scene's
                          object inventory.
-  - ``categorical_match``: ordinal-bucket synonym match for the Phase 9
-                         held-out QUESTION TYPES (kinetic_energy,
-                         collision_prediction, mass_comparison,
-                         speed_comparison, time_to_event). The substring
-                         scorer alone misses paraphrases like
-                         ``"medium"`` <-> ``"moderate"`` or
-                         ``"the third object"`` <-> ``"3"``.
-  - ``io``              : Phase-9 eval-JSON <-> legacy details.jsonl
-                         schema conversion so the legacy audits run
-                         unchanged on the new outputs.
 
 Every helper has the same behaviour as the pre-refactor copy in its
 original script. The refactored callers are regression-tested in
@@ -66,20 +56,6 @@ from .referent_equiv import (  # noqa: F401
     scene_id_to_num,
     scene_object_inventory,
 )
-from .categorical_match import (  # noqa: F401
-    HELDOUT_TYPE_BUCKETS,
-    categorical_correct,
-    extract_object_index,
-)
-from .answer_space import (  # noqa: F401
-    ANSWER_SPACE_CUES,
-    TRAINED_TYPE_CUES,
-    IN_CONTEXT_DEMOS,
-    PromptConfig,
-    build_prompt,
-    build_first_token_mask,
-    make_constrained_processor,
-)
 
 __all__ = [
     'norm',
@@ -102,14 +78,4 @@ __all__ = [
     'load_scene_objects',
     'scene_id_to_num',
     'scene_object_inventory',
-    'HELDOUT_TYPE_BUCKETS',
-    'categorical_correct',
-    'extract_object_index',
-    'ANSWER_SPACE_CUES',
-    'TRAINED_TYPE_CUES',
-    'IN_CONTEXT_DEMOS',
-    'PromptConfig',
-    'build_prompt',
-    'build_first_token_mask',
-    'make_constrained_processor',
 ]
