@@ -49,9 +49,11 @@ DEFAULT_CKPT = (r"C:\Users\jpoko\source\repos\homework\CascadeProjects\windsurf-
                 r"\compsac_2026_code\checkpoints\adapter_phase3.pt")
 
 CAUSAL = {"explanatory", "predictive", "counterfactual"}
-# Object-identity / static-attribute channels (everything except position[0:3],
-# velocity[3:6], angular velocity[10:13]).
-STATIC_CHANNELS = list(range(6, 35)) + []  # quat,angvel? -> exclude angvel(10:13)
+# Channel groups. Velocity = linear + angular (the dynamics channels).
+POS_CHANNELS = [0, 1, 2]
+VEL_CHANNELS = [3, 4, 5, 10, 11, 12]
+# Object-identity / static-attribute channels (quat, mass, radius, color, shape,
+# is_static, friction, inside, inertia, bbox, restitution).
 STATIC_CHANNELS = [6, 7, 8, 9, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
                    23, 24, 25, 26, 27, 34]
 
@@ -104,19 +106,30 @@ def main() -> None:
     adapter = load_adapter_model(args.adapter_checkpoint, "", device=args.device)
     adapter.eval()
 
-    def b_full(s):
+    # All channel-zeroing conditions are SINGLE-FRAME: on a multi-frame input
+    # the encoder re-derives velocity from the position trajectory, so zeroing
+    # the velocity channel would not actually remove velocity. Single frame =>
+    # the velocity channel is the only velocity signal, so zeroing it is clean.
+    def b_full(s):                       # full trajectory, all channels (upper ref)
         return s
-    def b_single(s):
+    def _single(s):
         fi = min(args.frame, s.shape[0] - 1)
-        return s[fi:fi + 1]
-    def b_zerostatic(s):
-        s2 = s.copy()
-        s2[:, :, STATIC_CHANNELS] = 0.0
-        return s2
+        return s[fi:fi + 1].copy()
+    def b_single(s):                     # one frame, all channels (instantaneous state)
+        return _single(s)
+    def b_no_vel(s):                     # pos + identity, NO velocity  <-- key test
+        x = _single(s); x[:, :, VEL_CHANNELS] = 0.0; return x
+    def b_no_pos(s):                     # velocity + identity, no position
+        x = _single(s); x[:, :, POS_CHANNELS] = 0.0; return x
+    def b_identity_only(s):              # identity only (no pos, no vel)
+        x = _single(s); x[:, :, POS_CHANNELS + VEL_CHANNELS] = 0.0; return x
+    def b_kinematics_only(s):            # pos + vel, NO identity
+        x = _single(s); x[:, :, STATIC_CHANNELS] = 0.0; return x
     def b_zero(s):
         return np.zeros_like(s)
-    CONDS = {"full": b_full, "single_frame": b_single,
-             "zero_static": b_zerostatic, "zero_physics": b_zero}
+    CONDS = {"full": b_full, "single_all": b_single, "no_velocity": b_no_vel,
+             "no_position": b_no_pos, "identity_only": b_identity_only,
+             "kinematics_only": b_kinematics_only, "zero_physics": b_zero}
 
     # tallies[cond][ctype] = [correct, total]
     tallies = {c: defaultdict(lambda: [0, 0]) for c in CONDS}
@@ -172,7 +185,8 @@ def main() -> None:
 
     print(f"\nHeld-out channel/frame ablation  (n={tallies['full']['ALL'][1]} questions)")
     print("=" * 78)
-    order = ["full", "single_frame", "zero_static", "zero_physics"]
+    order = ["full", "single_all", "no_velocity", "no_position",
+             "identity_only", "kinematics_only", "zero_physics"]
     types = ["ALL", "explanatory", "predictive", "counterfactual"]
     hdr = f"{'condition':<14}" + "".join(f"{t[:13]:>16}" for t in types)
     print(hdr)
@@ -188,13 +202,14 @@ def main() -> None:
                 row += f"{p*100:>7.1f}% ({n:>4}) "
         print(row)
     print("-" * 78)
-    full = tallies["full"]["ALL"]; sf = tallies["single_frame"]["ALL"]
-    zs = tallies["zero_static"]["ALL"]; zp = tallies["zero_physics"]["ALL"]
-    def acc(t): return 100 * t[0] / max(1, t[1])
-    print(f"full - zero_physics (total grounding):   {acc(full)-acc(zp):+.1f} pp")
-    print(f"full - single_frame (DYNAMICS contrib):  {acc(full)-acc(sf):+.1f} pp")
-    print(f"single_frame - zero (STATIC contrib):    {acc(sf)-acc(zp):+.1f} pp")
-    print(f"full - zero_static (identity contrib):   {acc(full)-acc(zs):+.1f} pp")
+    def acc(name):
+        t = tallies[name]["ALL"]; return 100 * t[0] / max(1, t[1])
+    print(f"total grounding   full - zero_physics:        {acc('full')-acc('zero_physics'):+.1f} pp")
+    print(f"trajectory/accel  full - single_all:          {acc('full')-acc('single_all'):+.1f} pp")
+    print(f"VELOCITY          single_all - no_velocity:    {acc('single_all')-acc('no_velocity'):+.1f} pp   <-- dynamics test")
+    print(f"position          single_all - no_position:    {acc('single_all')-acc('no_position'):+.1f} pp")
+    print(f"identity-only     identity_only - zero:        {acc('identity_only')-acc('zero_physics'):+.1f} pp")
+    print(f"kinematics-only   kinematics_only - zero:      {acc('kinematics_only')-acc('zero_physics'):+.1f} pp")
 
     if args.output:
         Path(args.output).parent.mkdir(parents=True, exist_ok=True)
