@@ -1,5 +1,6 @@
 # IDE/Assistant specific
-.claude
+.claude/
+.vscode/
 .windsurf/
 openmemory.md
 
