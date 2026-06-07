@@ -12,3 +12,30 @@ models/
 
 # OpenMemory - IDE/Assistant specific rules
 .windsurf\rules\openmemory.md
+
+# Benchmark data (large; lives outside the workspace tree by default).
+# ComPhy: 10k annotation JSONs + 8 QA chunks (~2.6 GB). Default home is
+# D:\comphy (set in comphy_benchmark/run_comphy_evaluation.py DEFAULT_COMPHY_DIR);
+# pass --comphy_dir to override. Belt-and-suspenders ignore in case anyone
+# re-copies into the repo:
+benchmark_data/comphy/
+
+# Local copy / move logs
+.comphy_copy.log
+.comphy_move.log
+
+# Eval result JSONs from the runners (per-question details can be MB-scale)
+clevrer_benchmark/results/
+comphy_benchmark/results/
+
+# Paper sources (LaTeX, references, draft notes). Tracked in a separate
+# location; these directories are workspace-local for editing convenience only.
+article/
+
+# COMPSAC_2026 paper/code folders pulled in for editing convenience.
+# Multiple casings covered so any variant from the upstream tree stays untracked.
+COMPSAC_2026/
+compsac_2026/
+compsac-2026/
+Compsac-2026/
+compsac_2026_code/

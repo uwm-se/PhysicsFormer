@@ -463,7 +463,8 @@ def _contrastive_score_choices(
     choice_texts: List[str],
     alpha: float = 1.0,
     device: str = 'cuda',
-) -> torch.Tensor:
+    return_components: bool = False,
+):
     """Score MCQ choices via Contrastive Decoding (Jan 26 published recipe).
 
     Reproduces ``contrastive_score_choices`` from
@@ -481,6 +482,14 @@ def _contrastive_score_choices(
     uplifted* by the physics prefix, not just the most-likely choice. This
     amplifies the (typically weak) physics-dependent signal that plain
     perplexity-ranking misses.
+
+    When ``return_components=True`` the function returns
+    ``(combined, real_scores, zero_scores)`` instead of just ``combined`` so a
+    caller can log the raw components and sweep ``alpha`` offline -- including
+    the two informative endpoints: ``zero_scores`` alone (the zeroed-prefix /
+    physics-blind ranking, i.e. the ``zero_physics`` ablation recovered
+    analytically) and ``real_scores - zero_scores`` alone (the pure
+    physics-delta decision rule, ``alpha -> inf``).
     """
     batch_size = physics_states.size(0)
     assert batch_size == 1, "single-question scoring path"
@@ -555,7 +564,13 @@ def _contrastive_score_choices(
 
     real_scores = torch.stack(real_scores, dim=1)  # [batch=1, num_choices]
     zero_scores = torch.stack(zero_scores, dim=1)
-    return real_scores + alpha * (real_scores - zero_scores)
+    combined = real_scores + alpha * (real_scores - zero_scores)
+    if return_components:
+        # Expose the raw physics-on / physics-off log-likelihoods so callers
+        # can sweep alpha (and recover the pure physics-delta and the
+        # zeroed-prefix ranking) offline from a single eval pass.
+        return combined, real_scores, zero_scores
+    return combined
 
 
 def answer_with_adapter(

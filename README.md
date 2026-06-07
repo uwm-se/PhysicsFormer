@@ -83,6 +83,16 @@ Result JSONs:
 Reproduction: see [`REPRODUCTION.md` §4](REPRODUCTION.md) (held-out)
 and [§7](REPRODUCTION.md) (15-obj).
 
+### ComPhy zero-shot OOD (cross-benchmark transfer)
+
+The CLEVRER-trained Phase 3 checkpoint can also be evaluated on
+**ComPhy** (Chen et al., ICLR 2022) with no retraining — tests whether
+the architecture and the grounding signal transfer to a different
+physics-reasoning benchmark. Mass transfers cleanly into the 35-D
+state; charge has no slot in the schema and is disclosed honestly in
+the stats. See [`comphy_benchmark/README.md`](comphy_benchmark/README.md)
+and [`REPRODUCTION.md` §8](REPRODUCTION.md).
+
 ### Zero-physics ablation (first 100 scenes, 435 questions)
 
 Zeroing the physics state tensor drops performance from **82.3% →

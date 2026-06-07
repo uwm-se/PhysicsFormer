@@ -429,7 +429,85 @@ above.
 
 ---
 
-## 8. Retraining from scratch
+## 8. ComPhy zero-shot OOD evaluation
+
+The CLEVRER Phase 3 checkpoint can be evaluated on **ComPhy** (Chen et
+al., ICLR 2022) with no retraining — same encoder, same adapter,
+different benchmark. This is the cross-benchmark transfer experiment:
+it shows the architecture and the grounding signal aren't
+CLEVRER-specific. See [`comphy_benchmark/README.md`](comphy_benchmark/README.md)
+for the full design discussion (mass transfers cleanly; charge has no
+slot in the 35-D state schema — disclosed honestly in the stats).
+
+### 8.1 Data layout
+
+The ComPhy release lives **outside the workspace tree** at `D:\comphy`
+(~2.6 GB across 10k annotation JSONs + 8 validation QA chunks). The
+runner defaults `--comphy_dir` to this path so no flag is needed in
+the common case. Override via `--comphy_dir <path>` or set the
+`COMPHY_DIR` env var.
+
+```
+D:\comphy\
+├── target_annotation\
+│   ├── annotation_00000_01000\<00000..00999>.json
+│   └── ...
+├── qa_chunk0.json ... qa_chunk7.json   # 8 validation chunks, 1000 scenes each
+├── train_qa.json                       # NOT used by default
+└── train_qa_chunk0..3.json             # NOT used by default
+```
+
+If you ever need to re-populate this directory: the source is
+<https://comphyreasoning.github.io/>.
+
+### 8.2 Baseline run
+
+```powershell
+python comphy_benchmark\run_comphy_evaluation.py `
+    --adapter_checkpoint checkpoints\adapter_phase3.pt `
+    --output comphy_benchmark\results\phase3_comphy_zeroshot.json `
+    --save_details
+```
+
+Defaults match the CLEVRER SOTA protocol (`--eval_method generate
+--gen_mode sample --gen_seed 42 --single_frame 64`). For a ~3-minute
+smoke test, add `--max_scenes 50`. Restrict to one validation chunk
+(~5k questions instead of ~43k) with
+`--qa_files benchmark_data\comphy\qa_chunk0.json`.
+
+### 8.3 Zero-physics + shuffle-choices controls
+
+The two ablations that, together with the baseline, make the
+cross-benchmark claim defensible (mirroring the CLEVRER protocol):
+
+```powershell
+python comphy_benchmark\run_comphy_evaluation.py `
+    --adapter_checkpoint checkpoints\adapter_phase3.pt `
+    --zero_physics `
+    --output comphy_benchmark\results\phase3_comphy_zerophysics.json
+
+python comphy_benchmark\run_comphy_evaluation.py `
+    --adapter_checkpoint checkpoints\adapter_phase3.pt `
+    --shuffle_choices `
+    --output comphy_benchmark\results\phase3_comphy_shuffle.json
+```
+
+### 8.4 Wilson CIs + LaTeX table
+
+```powershell
+python comphy_benchmark\scripts\compute_comphy_stats.py `
+    --result comphy_benchmark\results\phase3_comphy_zeroshot.json `
+    --emit_latex
+```
+
+Emits Wilson 95% CIs by coarse type (factual / predictive /
+counterfactual) + native ComPhy subtypes + a charge-dependence slice
+(keyword filter on question text), plus a `tab:comphy_ood` LaTeX
+fragment ready to paste into `main.tex`.
+
+---
+
+## 9. Retraining from scratch
 
 ### Stage 1 — PhysicsFormer pretraining
 
@@ -587,7 +665,7 @@ thanks to the Phase 2 contrastive loss added after the paper.
 
 ---
 
-## 9. Historical context and alternative eval methods
+## 10. Historical context and alternative eval methods
 
 Earlier checkpoints and earlier eval scripts in the workspace used a
 perplexity-ranking MCQ eval (`select_answer_from_choices` — rank each
@@ -615,7 +693,7 @@ keep them straight:
 
 ---
 
-## 10. Further reading
+## 11. Further reading
 
 - `clevrer_benchmark/BENCHMARK_SUMMARY.md` — LLM baseline methodology.
 - `clevrer_benchmark/results/FAIR_BENCHMARK_RESULTS.md` — original
