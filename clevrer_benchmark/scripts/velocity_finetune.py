@@ -28,10 +28,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from clevrer_benchmark.run_adapter_evaluation import load_adapter_model  # noqa: E402
 from clevrer_benchmark.scene_converter import COLOR_MAP, SHAPE_MAP        # noqa: E402
 
-DEFAULT_H5 = (r"C:\Users\jpoko\source\repos\homework\CascadeProjects\windsurf-project"
-              r"\compsac_2026_code\data\clevrer_training_expanded.h5")
-DEFAULT_CKPT = (r"C:\Users\jpoko\source\repos\homework\CascadeProjects\windsurf-project"
-                r"\compsac_2026_code\checkpoints\adapter_phase3.pt")
+# --- reproducibility: resolve data/checkpoint paths from env vars (see REPRODUCTION.md) ---
+import os as _os_repro
+from pathlib import Path as _Path_repro
+_REPRO_ROOT = _Path_repro(__file__).resolve().parents[2]
+
+DEFAULT_H5 = _os_repro.environ.get("CLEVRER_H5", str(_REPRO_ROOT / "data" / "clevrer_training_expanded.h5"))
+DEFAULT_CKPT = _os_repro.environ.get("ADAPTER_CKPT", str(_REPRO_ROOT / "checkpoints" / "adapter_phase3.pt"))
 DT, T0, K, THRESH = 1.0 / 25.0, 64, 25, 0.9
 _COLORS = list(COLOR_MAP.items())
 _SHAPES = {v: k for k, v in SHAPE_MAP.items()}
@@ -51,30 +54,25 @@ def _will_collide(pi, pj, vi, vj):
     return mind < THRESH
 
 
-def gen_example(state, mask, rng):
-    """Return (question, choices, correct_idx) or None. Velocity-critical.
-    ``state`` is the full ``[T,N,35]`` trajectory; we use frame T0."""
-    frame = state[T0]                                  # [N,35]
+def scene_mean_speed(state, mask):
+    frame = state[T0]
     idx = np.where(mask > 0)[0]
-    if len(idx) < 2:
+    if len(idx) < 1:
         return None
-    i, j = rng.choice(idx, size=2, replace=False)
-    oi, oj = frame[i], frame[j]
-    di, dj = _desc(oi), _desc(oj)
-    if di == dj:
-        return None                                    # need distinguishable referents
-    if rng.random() < 0.5:                             # collision task
-        lab = _will_collide(oi[0:3], oj[0:3], oi[3:6], oj[3:6])
-        if lab is None:
-            return None
-        q = f"Will the {di} and the {dj} collide within the next second?"
-        return q, ["yes", "no"], (0 if lab else 1)
-    # fastest task
-    si, sj = float(np.linalg.norm(oi[3:6])), float(np.linalg.norm(oj[3:6]))
-    if abs(si - sj) < 0.05:
+    return float(np.mean([np.linalg.norm(frame[i][3:6]) for i in idx]))
+
+
+def gen_example(state, mask, median):
+    """Shortcut-free velocity task: is the scene's overall motion fast or slow?
+    The label is a pure function of velocity magnitudes (median split), so it is
+    position- and identity-independent -- the model cannot fake it without
+    reading velocity. The probe confirms mean-speed is decodable from the prefix
+    (R^2=0.49) and collapses to R^2=-0.16 when velocity is zeroed."""
+    ms = scene_mean_speed(state, mask)
+    if ms is None or abs(ms - median) < 0.04:          # drop borderline for clean labels
         return None
-    q = f"Which object is moving faster, the {di} or the {dj}?"
-    return q, [di, dj], (0 if si > sj else 1)
+    q = "Is the overall motion in this scene fast or slow?"
+    return q, ["fast", "slow"], (0 if ms > median else 1)
 
 
 def scene_collide(frame, mask):
@@ -130,11 +128,10 @@ def _state_tensor(states_np, masks_np, i, dev):
     return s, m
 
 
-def evaluate(adapter, states_np, masks_np, eval_idx, dev, tag):
-    rng = np.random.default_rng(0)
+def evaluate(adapter, states_np, masks_np, eval_idx, dev, tag, median):
     real_c = abl_c = tot = 0
     for i in eval_idx:
-        ex = gen_example(states_np[i], masks_np[i], np.random.default_rng(i))
+        ex = gen_example(states_np[i], masks_np[i], median)
         if ex is None:
             continue
         q, choices, gold = ex
@@ -169,7 +166,10 @@ def main():
     split = int(0.85 * pool)
     train_idx = np.arange(0, split)
     eval_idx = np.arange(split, min(split + 800, pool))
-    print(f"pool={pool} train={len(train_idx)} eval={len(eval_idx)}")
+    ms_all = [scene_mean_speed(states_np[i], masks_np[i]) for i in range(pool)]
+    median = float(np.median([x for x in ms_all if x is not None]))
+    print(f"pool={pool} train={len(train_idx)} eval={len(eval_idx)}  "
+          f"mean-speed median={median:.3f}")
 
     adapter = load_adapter_model(args.adapter_checkpoint, "", device=dev)
     # Train LoRA + the prefix MLP (``adapter.*``): lets the representation
@@ -189,7 +189,7 @@ def main():
           f"aux_lambda={args.aux_lambda}")
 
     adapter.eval()
-    evaluate(adapter, states_np, masks_np, eval_idx, dev, "BEFORE")
+    evaluate(adapter, states_np, masks_np, eval_idx, dev, "BEFORE", median)
     if args.steps <= 0:
         return
 
@@ -200,17 +200,16 @@ def main():
     qa_l, aux_l = [], []
     while step < args.steps:
         i = int(rng.choice(train_idx))
-        ex = gen_example(states_np[i], masks_np[i], rng)
+        ex = gen_example(states_np[i], masks_np[i], median)
         if ex is None:
             continue
         q, choices, gold = ex
         s, m = _state_tensor(states_np, masks_np, i, dev)
         prefix = _prefix_of(adapter, s, m)                       # shared
         scores = _score_given_prefix(adapter, prefix, q, choices, dev, grad=True)
-        qa = F.cross_entropy(scores.unsqueeze(0), torch.tensor([gold], device=dev))
-        col = scene_collide(states_np[i][T0], masks_np[i])
-        aux = F.cross_entropy(aux_head(prefix.mean(1)),
-                              torch.tensor([col], device=dev))
+        gt = torch.tensor([gold], device=dev)
+        qa = F.cross_entropy(scores.unsqueeze(0), gt)
+        aux = F.cross_entropy(aux_head(prefix.mean(1)), gt)      # same task, direct pressure
         loss = qa + args.aux_lambda * aux
         (loss / args.accum).backward()
         qa_l.append(qa.item()); aux_l.append(aux.item())
@@ -223,7 +222,7 @@ def main():
                   f"aux CE {np.mean(aux_l[-300:]):.3f}")
 
     adapter.eval()
-    evaluate(adapter, states_np, masks_np, eval_idx, dev, "AFTER")
+    evaluate(adapter, states_np, masks_np, eval_idx, dev, "AFTER", median)
     if args.save:
         torch.save({k: v for k, v in adapter.state_dict().items()
                     if any(t in k for t in ("lora", "adapter"))}, args.save)

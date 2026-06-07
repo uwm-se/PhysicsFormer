@@ -38,16 +38,19 @@ import h5py
 import numpy as np
 import torch
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
 from clevrer_benchmark.run_adapter_evaluation import (  # noqa: E402
     load_adapter_model,
     _contrastive_score_choices,
 )
 
-DEFAULT_H5 = (r"C:\Users\jpoko\source\repos\homework\CascadeProjects\windsurf-project"
-              r"\compsac_2026_code\data\clevrer_training_expanded.h5")
-DEFAULT_CKPT = (r"C:\Users\jpoko\source\repos\homework\CascadeProjects\windsurf-project"
-                r"\compsac_2026_code\checkpoints\adapter_phase3.pt")
+# --- reproducibility: resolve data/checkpoint paths from env vars (see REPRODUCTION.md) ---
+import os as _os_repro
+from pathlib import Path as _Path_repro
+_REPRO_ROOT = _Path_repro(__file__).resolve().parents[3]
+
+DEFAULT_H5 = _os_repro.environ.get("CLEVRER_H5", str(_REPRO_ROOT / "data" / "clevrer_training_expanded.h5"))
+DEFAULT_CKPT = _os_repro.environ.get("ADAPTER_CKPT", str(_REPRO_ROOT / "checkpoints" / "adapter_phase3.pt"))
 
 COLORS = ["gray", "red", "blue", "green", "brown", "purple", "cyan", "yellow"]
 SHAPES = ["cube", "sphere", "cylinder"]

@@ -162,8 +162,12 @@ def rollout_loss(pred, states, mask, t0, horizon):
 # Standalone training on CLEVRER trajectories (validates the simulator learns).
 # ---------------------------------------------------------------------------
 
-DEFAULT_H5 = (r"C:\Users\jpoko\source\repos\homework\CascadeProjects\windsurf-project"
-              r"\compsac_2026_code\data\clevrer_training_expanded.h5")
+# --- reproducibility: resolve data/checkpoint paths from env vars (see REPRODUCTION.md) ---
+import os as _os_repro
+from pathlib import Path as _Path_repro
+_REPRO_ROOT = _Path_repro(__file__).resolve().parents[1]
+
+DEFAULT_H5 = _os_repro.environ.get("CLEVRER_H5", str(_REPRO_ROOT / "data" / "clevrer_training_expanded.h5"))
 
 
 def train():

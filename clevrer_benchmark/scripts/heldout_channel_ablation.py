@@ -43,10 +43,13 @@ from clevrer_benchmark.run_adapter_evaluation import (  # noqa: E402
 )
 from clevrer_benchmark.scripts.compute_paper_stats import wilson_ci  # noqa: E402
 
-DEFAULT_H5 = (r"C:\Users\jpoko\source\repos\homework\CascadeProjects\windsurf-project"
-              r"\compsac_2026_code\data\clevrer_training_expanded.h5")
-DEFAULT_CKPT = (r"C:\Users\jpoko\source\repos\homework\CascadeProjects\windsurf-project"
-                r"\compsac_2026_code\checkpoints\adapter_phase3.pt")
+# --- reproducibility: resolve data/checkpoint paths from env vars (see REPRODUCTION.md) ---
+import os as _os_repro
+from pathlib import Path as _Path_repro
+_REPRO_ROOT = _Path_repro(__file__).resolve().parents[2]
+
+DEFAULT_H5 = _os_repro.environ.get("CLEVRER_H5", str(_REPRO_ROOT / "data" / "clevrer_training_expanded.h5"))
+DEFAULT_CKPT = _os_repro.environ.get("ADAPTER_CKPT", str(_REPRO_ROOT / "checkpoints" / "adapter_phase3.pt"))
 
 CAUSAL = {"explanatory", "predictive", "counterfactual"}
 # Channel groups. Velocity = linear + angular (the dynamics channels).

@@ -6,8 +6,12 @@ import sys
 import h5py
 import numpy as np
 
-H5 = (r"C:\Users\jpoko\source\repos\homework\CascadeProjects\windsurf-project"
-      r"\compsac_2026_code\data\clevrer_training_expanded.h5")
+# --- reproducibility: resolve data/checkpoint paths from env vars (see REPRODUCTION.md) ---
+import os as _os_repro
+from pathlib import Path as _Path_repro
+_REPRO_ROOT = _Path_repro(__file__).resolve().parents[2]
+
+H5 = _os_repro.environ.get("CLEVRER_H5", str(_REPRO_ROOT / "data" / "clevrer_training_expanded.h5"))
 
 n = int(sys.argv[1]) if len(sys.argv) > 1 else 3000
 with h5py.File(H5, "r") as f:

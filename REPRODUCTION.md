@@ -717,3 +717,59 @@ keep them straight:
   to a +flips ceiling of **69.27% (+0.05 pp)** — confirming the
   substring-based `evaluate_answer()` is essentially tight.
 - `physics_former/training/README.md` — Stage-1 curriculum details.
+
+---
+
+## 12. Journal-v2 usage-map experiments
+
+The experiments specific to the journal version (the interface and
+computation "usage map": perception vs. instantaneous dynamics vs.
+forward prediction, plus the relative-invariant rollout) live in
+`clevrer_benchmark/scripts/`. They resolve the CLEVRER training HDF5 and
+the Phase-3 adapter from environment variables, so set these once (or
+place the files at the repo-relative defaults `data/` and
+`checkpoints/`):
+
+```powershell
+$env:CLEVRER_H5   = "$CLEVRER_DIR\clevrer_training_expanded.h5"
+$env:ADAPTER_CKPT = "checkpoints\adapter_phase3.pt"
+```
+
+If unset, they default to `<repo>\data\clevrer_training_expanded.h5` and
+`<repo>\checkpoints\adapter_phase3.pt`. The IPEv2 and NeSy-WM scripts
+also read the shipped ComPhy cache at
+`comphy_benchmark/results/ipe_comphy_cache.npz`.
+
+Each script maps to one claim in the journal paper:
+
+| Paper claim (journalv2) | Script | Command |
+|---|---|---|
+| Channel-and-frame ablation: identity +35.7 pp, velocity +0.2 pp (`tab:heldout_ablation`) | `heldout_channel_ablation.py` | `python clevrer_benchmark\scripts\heldout_channel_ablation.py --n 2000 --output clevrer_benchmark\results\heldout_channel_ablation.json` |
+| Counterfactual velocity-inversion changes only ~11% of predictions | `counterfactual_identity_probe.py` | `python clevrer_benchmark\scripts\counterfactual_identity_probe.py --n 1500 --output clevrer_benchmark\results\counterfactual_identity_probe.json` |
+| Interface result: same velocity as text adds +35 pp | `velocity_text_inject.py` | `python clevrer_benchmark\scripts\velocity_text_inject.py` |
+| Interface result: adapter retraining cannot make the LM read prefix velocity | `velocity_finetune.py` | `python clevrer_benchmark\scripts\velocity_finetune.py` |
+| Prefix velocity is linearly decodable (R^2 = 0.49) | `velocity_critical_probe.py` | `python clevrer_benchmark\scripts\velocity_critical_probe.py --n 10000` |
+| Computation/invariance: IPEv2 transfer -1% to +43% (CLEVRER to ComPhy, zero-shot) | `ipe_v2_transfer.py` | `python clevrer_benchmark\scripts\ipe_v2_transfer.py` |
+| NeSy-WM end-to-end on held-out ComPhy: 98% collision | `nesy_wm_comphy.py` | `python clevrer_benchmark\scripts\nesy_wm_comphy.py` |
+| NeSy-WM multi-question: 98% collision, 82% which-faster | `nesy_wm_multi.py` | `python clevrer_benchmark\scripts\nesy_wm_multi.py` |
+
+All accept `--device cpu` for a (slow) GPU-free run. The IPEv2 and
+NeSy-WM scripts train a small (0.3M-parameter) rollout in-process, so
+they need no extra checkpoint; the adapter-based probes need
+`ADAPTER_CKPT`.
+
+### Script index: canonical vs. scratch
+
+The canonical scripts are those listed in the tables in this document
+(§4a, §6, §7, and §12). Everything else in `clevrer_benchmark/scripts/`
+does not back a paper number:
+
+- `clevrer_benchmark/scripts/exploratory/` holds runnable but
+  non-essential diagnostics that no claim in the paper depends on:
+  `physicsformer_oracle.py` and `ipe_collision_oracle.py` (the absolute
+  vs. ballistic rollout oracle; the stand-in argument rests instead on
+  the IPEv2 -1% absolute-feature result in `ipe_v2_transfer.py`),
+  `ipe_v2_charge.py` (charge, out of scope), and `dynamics_probe.py`.
+- Underscore-prefixed files (`_compute_1k_cis.py`, `_dump_llm_per_type.py`,
+  `_smoke_*`, `_validate_*`, `_check_*`, `_count_*`, `_inspect_*`) are
+  internal scratch and post-processing utilities, not entry points.
