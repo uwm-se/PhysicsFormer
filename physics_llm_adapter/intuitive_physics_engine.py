@@ -177,6 +177,7 @@ def train():
     ap.add_argument("--hidden", type=int, default=128)
     ap.add_argument("--lr", type=float, default=5e-4)
     ap.add_argument("--save", default=None)
+    ap.add_argument("--load", default=None, help="Load a checkpoint and eval only.")
     args = ap.parse_args()
 
     dev = args.device if torch.cuda.is_available() else "cpu"
@@ -207,6 +208,14 @@ def train():
         edyn = torch.cat([es[..., POS], es[..., VEL]], -1)
         frozen = edyn[:, t0:t0 + 1].expand(-1, args.horizon, -1, -1)
         base_ref = rollout_loss(frozen, es, em, t0, args.horizon).item()
+        # Constant-velocity (accel=0) baseline: the built-in integrator with NO
+        # learning. This is the honest baseline -- the network only earns credit
+        # for what it adds OVER ballistic extrapolation (i.e. collisions).
+        p0, v0 = edyn[:, t0, :, :3], edyn[:, t0, :, 3:]
+        ks = torch.arange(1, args.horizon + 1, device=dev).view(1, -1, 1, 1)
+        cvpos = p0.unsqueeze(1) + v0.unsqueeze(1) * ks * (1.0 / 25.0)
+        cvvel = v0.unsqueeze(1).expand(-1, args.horizon, -1, -1)
+        cv_ref = rollout_loss(torch.cat([cvpos, cvvel], -1), es, em, t0, args.horizon).item()
 
     def evaluate():
         model.eval()
@@ -216,10 +225,20 @@ def train():
         model.train()
         return v
 
-    print(f"IPE training | pool={pool} T={T} N_obj={N_obj} t0={t0} "
-          f"obs_w={args.obs_w} horizon={args.horizon} params="
-          f"{sum(p.numel() for p in model.parameters()):,}")
-    print(f"  static-frozen (no-motion) eval baseline: {base_ref:.4f}")
+    print(f"IPE | pool={pool} t0={t0} obs_w={args.obs_w} horizon={args.horizon} "
+          f"params={sum(p.numel() for p in model.parameters()):,}")
+    print(f"  baselines:  no-motion {base_ref:.4f}   constant-velocity {cv_ref:.4f}")
+
+    if args.load:
+        model.load_state_dict(torch.load(args.load, map_location=dev))
+        mse = evaluate()
+        print(f"\nEVAL-ONLY ({args.load})")
+        print(f"  IPE rollout MSE            {mse:.4f}")
+        print(f"  vs no-motion baseline      {(1-mse/base_ref)*100:+.0f}%")
+        print(f"  vs constant-velocity base  {(1-mse/cv_ref)*100:+.0f}%   "
+              f"<-- the HONEST test (what the learned net adds over ballistic)")
+        return
+
     model.train()
     best = float("inf")
     for step in range(1, args.steps + 1):
