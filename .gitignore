@@ -10,6 +10,7 @@ __pycache__/
 
 # Model checkpoints
 models/
+checkpoints/*.pt
 
 # OpenMemory - IDE/Assistant specific rules
 .windsurf\rules\openmemory.md
