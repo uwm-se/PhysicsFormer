@@ -193,7 +193,6 @@ compsac_2026_code/
 │   ├── scene_converter.py      # CLEVRER scene → [T, N, 35] tensor
 │   ├── question_mapper.py      # CLEVRER question → adapter format
 │   ├── evaluator.py            # Shared eval utilities
-│   ├── counterfactual_handler.py
 │   ├── BENCHMARK_SUMMARY.md    # LLM-baseline methodology
 │   ├── results/                # Shipped result JSONs (Physics-LLM + 11 LLM baselines)
 │   └── scripts/                # Statistical analysis (Wilson CIs, Fisher's exact, held-out filter)

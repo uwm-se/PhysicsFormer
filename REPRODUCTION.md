@@ -749,14 +749,15 @@ Each script maps to one claim in the journal paper:
 | Interface result: same velocity as text adds +35 pp | `velocity_text_inject.py` | `python clevrer_benchmark\scripts\velocity_text_inject.py` |
 | Interface result: adapter retraining cannot make the LM read prefix velocity | `velocity_finetune.py` | `python clevrer_benchmark\scripts\velocity_finetune.py` |
 | Prefix velocity is linearly decodable (R^2 = 0.49) | `velocity_critical_probe.py` | `python clevrer_benchmark\scripts\velocity_critical_probe.py --n 10000` |
-| Computation/invariance: IPEv2 transfer -1% to +43% (CLEVRER to ComPhy, zero-shot) | `ipe_v2_transfer.py` | `python clevrer_benchmark\scripts\ipe_v2_transfer.py` |
-| NeSy-WM end-to-end on held-out ComPhy: 98% collision | `nesy_wm_comphy.py` | `python clevrer_benchmark\scripts\nesy_wm_comphy.py` |
-| NeSy-WM multi-question: 98% collision, 82% which-faster | `nesy_wm_multi.py` | `python clevrer_benchmark\scripts\nesy_wm_multi.py` |
+| Computation/invariance: PhysicsFormer's physics-biased attention reaches the rollout cell; the relative attention bias is the causal lever (absolute -4% / relative +42% vs ballistic, 3 seeds; abs-pos in the token is irrelevant) | `physicsformer_rollout.py` | `python clevrer_benchmark\scripts\physicsformer_rollout.py --seeds 3` |
+| The interface is the wall even for a forward rollout, delivered through the original adapter: continuous prefix of the predicted future 52% vs discretized fact 90% (which-faster, held-out ComPhy) | `nesy_wm_adapter_interface.py` | `python clevrer_benchmark\scripts\nesy_wm_adapter_interface.py` |
+| Port: the pretrained 50M PhysicsFormer (frozen encoder features via `encode_physics` + a trained relative head) reaches the rollout cell, +51% neutral (beats from-scratch +42%; charged +17%, helped not solved) | `physicsformer_port.py` | `python clevrer_benchmark\scripts\physicsformer_port.py --seeds 2` |
 
-All accept `--device cpu` for a (slow) GPU-free run. The IPEv2 and
-NeSy-WM scripts train a small (0.3M-parameter) rollout in-process, so
-they need no extra checkpoint; the adapter-based probes need
-`ADAPTER_CKPT`.
+All accept `--device cpu` for a (slow) GPU-free run. `physicsformer_rollout.py`
+trains a small attention rollout in-process (needs `CLEVRER_H5` + the ComPhy
+cache, no checkpoint). `physicsformer_port.py` and `nesy_wm_adapter_interface.py`
+read the frozen pretrained encoder, so they need `ADAPTER_CKPT` as well; neither
+saves the trained head (it re-derives in minutes).
 
 ### Script index: canonical vs. scratch
 
@@ -767,9 +768,9 @@ does not back a paper number:
 - `clevrer_benchmark/scripts/exploratory/` holds runnable but
   non-essential diagnostics that no claim in the paper depends on:
   `physicsformer_oracle.py` and `ipe_collision_oracle.py` (the absolute
-  vs. ballistic rollout oracle; the stand-in argument rests instead on
-  the IPEv2 -1% absolute-feature result in `ipe_v2_transfer.py`),
+  vs. ballistic rollout oracle; the paper instead uses the controlled
+  absolute -4% / relative +42% result in `physicsformer_rollout.py`),
   `ipe_v2_charge.py` (charge, out of scope), and `dynamics_probe.py`.
-- Underscore-prefixed files (`_compute_1k_cis.py`, `_dump_llm_per_type.py`,
-  `_smoke_*`, `_validate_*`, `_check_*`, `_count_*`, `_inspect_*`) are
-  internal scratch and post-processing utilities, not entry points.
+- Underscore-prefixed files (e.g. `_compute_1k_cis.py`, which computes the
+  1K-pool Wilson CIs in §6) are internal scratch / post-processing utilities,
+  not entry points.

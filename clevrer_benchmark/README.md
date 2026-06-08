@@ -81,7 +81,6 @@ clevrer_benchmark/
 ├── scene_converter.py       # CLEVRER scene → Physics-LLM state tensor
 ├── question_mapper.py       # CLEVRER question → Physics-LLM format
 ├── evaluator.py             # Main evaluation logic
-├── counterfactual_handler.py # Counterfactual question handling
 ├── run_evaluation.py        # CLI entry point
 └── README.md                # This file
 ```
