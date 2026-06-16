@@ -1,4 +1,4 @@
-# CompSAC-2026 Physics-LLM: Code Snapshot
+# Physics-LLM: Code Snapshot
 
 Clean, self-contained snapshot of the **82M Physics-LLM** — a
 PhysicsFormer physics encoder + DistilGPT-2 prefix-tuned with a
@@ -268,9 +268,3 @@ reproducible from this snapshot:
 The 82M vs 173M param-count discrepancy is accounting: 82M counts
 DistilGPT-2 only; 173M counts DistilGPT-2 + `FullPhysicsFormer` +
 adapter layers. The underlying model is the same.
-
-## Paper reference
-
-Companion paper and LaTeX sources live in `../compsac-2026/`:
-`main.tex` (manuscript), `BENCHMARK_RESULTS.md`,
-`PHYRE_BENCHMARK_REPORT.md`, `references.bib`.
